@@ -208,7 +208,11 @@ void app_main(void)
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
     // Initialize SD Card peripheral (including mount?)
+    // it's interesting here that I think 4-line should work, because I see the config,
+    // and would be much faster, but I've only got one line configured. 4 line fails with all
+    // kinds of can't mount commands
     audio_board_sdcard_init(set, SD_MODE_1_LINE);
+
     // Init keys too
     audio_board_key_init(set);
 
