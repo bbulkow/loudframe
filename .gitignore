@@ -1,3 +1,23 @@
+# ESP-IDF build output
+build
+sdkconfig
+sdkconfig.old
+sdkconfig.defaults
+
+# VS Code settings (optional)
+.vscode/
+
+# Python environment caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and temp
+*.log
+*.tmp
+
+## C isms
 # Prerequisites
 *.d
 
