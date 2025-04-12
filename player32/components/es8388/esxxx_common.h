@@ -32,6 +32,10 @@
 extern "C" {
 #endif
 
+#define ES_RATE_22KHZ (22050)
+#define ES_RATE_44KHZ (44100)
+#define ES_RATE_48KHZ (48000)
+
 typedef enum {
     BIT_LENGTH_MIN = -1,
     BIT_LENGTH_16BITS = 0x03,
@@ -116,8 +120,10 @@ typedef enum {
     D2SE_PGA_GAIN_MAX = 2,
 } es_d2se_pga_t;
 
+
 typedef enum {
     ADC_INPUT_MIN = -1,
+    ADC_INPUT_DISABLE,
     ADC_INPUT_LINPUT1_RINPUT1 = 0x00,
     ADC_INPUT_MIC1  = 0x05,
     ADC_INPUT_MIC2  = 0x06,
@@ -126,14 +132,23 @@ typedef enum {
     ADC_INPUT_MAX,
 } es_adc_input_t;
 
+// this doesn't seem to really match the data sheet. It's the settings for register 04.
+// PdnDACL - 7 - left dac power - 0 up, 1 down
+// PdnDACR - 6 - right DAC power - 0 up, 1 down
+// LOUT1 - 5 - LOUT1 - 0 disabled (default) 1 enabled
+// ROUT1 - 5 - ROUT1 - 0 disabled (default) 1 enabled
+// LOUT2 - 5 - LOUT2 - 0 disabled (default) 1 enabled
+// ROUT2 - 5 - ROUT2 - 0 disabled (default) 1 enabled
 typedef enum {
     DAC_OUTPUT_MIN = -1,
-    DAC_OUTPUT_LOUT1 = 0x04,
+    DAC_OUTPUT_OFF = 0xC0,
+    DAC_OUTPUT_LOUT_PWR = 0x80,
+    DAC_OUTPUT_ROUT_PWR = 0x40,
+    DAC_OUTPUT_LOUT1 = 0x20,
     DAC_OUTPUT_LOUT2 = 0x08,
-    DAC_OUTPUT_SPK   = 0x09,
     DAC_OUTPUT_ROUT1 = 0x10,
-    DAC_OUTPUT_ROUT2 = 0x20,
-    DAC_OUTPUT_ALL = 0x3c,
+    DAC_OUTPUT_ROUT2 = 0x04,
+    DAC_OUTPUT_ALL = 0xFC,
     DAC_OUTPUT_MAX,
 } es_dac_output_t;
 
@@ -160,12 +175,12 @@ typedef enum {
     ES_MODULE_MAX
 } es_module_t;
 
-typedef enum {
-    ES_MODE_MIN = -1,
-    ES_MODE_SLAVE = 0x00,
-    ES_MODE_MASTER = 0x01,
-    ES_MODE_MAX,
-} es_mode_t;
+// typedef enum {
+//     ES_MODE_MIN = -1,
+//     ES_MODE_SLAVE = 0x00,
+//     ES_MODE_MASTER = 0x01,
+//     ES_MODE_MAX,
+// } es_mode_t;
 
 typedef enum {
     ES_I2S_MIN = -1,
@@ -185,6 +200,96 @@ typedef struct {
 } es_i2s_clock_t;
 
 // from audio_hal.h
+// most of these will have to be removed over time and thus
+// should be replaced with es_ . However we find there are already
+// these definitions, so let's use those.
+
+// /**
+//  * @brief Select adc channel for input mic signal
+//  */
+// typedef enum {
+//     ES_ADC_INPUT_LINE1 = 0x00,  /*!< mic input to adc channel 1 */
+//     ES_ADC_INPUT_LINE2,         /*!< mic input to adc channel 2 */
+//     ES_ADC_INPUT_ALL,           /*!< mic input to both channels of adc */
+//     ES_ADC_INPUT_DIFFERENCE,    /*!< mic input to adc difference channel */
+// } es_adc_input_t;
+
+// /**
+//  * @brief Select channel for dac output
+//  */
+// typedef enum {
+//     ES_DAC_OUTPUT_LINE1 = 0x00,  /*!< dac output signal to channel 1 */
+//     ES_DAC_OUTPUT_LINE2,         /*!< dac output signal to channel 2 */
+//     ES_DAC_OUTPUT_ALL,           /*!< dac output signal to both channels */
+// } es_dac_output_t;
+
+/**
+ * @brief Select media hal codec mode
+ */
+typedef enum {
+    ES_CODEC_MODE_ENCODE = 1,  /*!< select adc */
+    ES_CODEC_MODE_DECODE,      /*!< select dac */
+    ES_CODEC_MODE_BOTH,        /*!< select both adc and dac */
+    ES_CODEC_MODE_LINE_IN,     /*!< set adc channel */
+} es_codec_mode_t;
+
+typedef enum {
+    ES_MODE_SLAVE = 0,  /*!< Slave mode */
+    ES_MODE_MASTER      /*!< Master mode */
+} es_iface_mode_t;
+
+// es_i2s_fmt >
+// typedef enum {
+//     ES_I2S_NORMAL = 0,  /*!< Standard I2S format */
+//     ES_I2S_LEFT,        /*!< Left-justified format */
+//     ES_I2S_RIGHT,       /*!< Right-justified format */
+//     ES_I2S_DSP_A,       /*!< DSP/PCM A mode */
+//     ES_I2S_DSP_B        /*!< DSP/PCM B mode */
+// } es_iface_format_t;
+
+typedef enum {
+    ES_BIT_LENGTH_8BITS = 8,
+    ES_BIT_LENGTH_16BITS = 16,
+    ES_BIT_LENGTH_24BITS = 24,
+    ES_BIT_LENGTH_32BITS = 32
+} es_bit_length_t;
+
+
+typedef struct {
+    es_iface_mode_t mode;      /*!< Audio interface operating mode: master or slave */
+//    es_iface_format_t fmt;     /*!< Audio interface format */
+    es_i2s_fmt_t fmt;           /*!< Audio interface format */
+    int samples;                      /*!< Number of samples per second (sampling rate) */
+    es_bit_length_t bits;     /*!< Audio bit depth */
+} es_codec_i2s_iface_t;
+
+
+// typedef enum {
+//     ES_CTRL_CODEC = 1,     /*!< Control all codec functions */
+//     ES_CTRL_ADC = 2,       /*!< Control ADC only */
+//     ES_CTRL_DAC = 3        /*!< Control DAC only */
+// } es_ctrl_t;
+
+typedef enum {
+    ES_CTRL_START,    
+    ES_CTRL_STOP     
+} es_ctrl_t;
+
+
+
+
+/**
+ * @brief Configure media hal for initialization of audio codec chip
+ */
+typedef struct {
+    es_adc_input_t adc_input;       /*!< set adc channel */
+    es_dac_output_t dac_output;     /*!< set dac channel */
+    es_codec_mode_t codec_mode;     /*!< select codec mode: adc, dac or both */
+    es_codec_i2s_iface_t i2s_iface; /*!< set I2S interface configuration */
+} es_codec_config_t;
+
+
+#if 0
 
 #define AUDIO_HAL_VOL_DEFAULT 70
 
@@ -303,6 +408,8 @@ typedef struct audio_hal {
     SemaphoreHandle_t audio_hal_lock;                                                                         /*!< semaphore of codec */
     void *handle;                                                                                            /*!< handle of audio codec */
 } audio_hal_func_t;
+
+#endif
 
 
 #ifdef __cplusplus

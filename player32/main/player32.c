@@ -171,6 +171,21 @@ int music_filename_get_vfs( char **file_o, enum FILETYPE_ENUM *filetype_o) {
 
 }
 
+//
+// Note. This allows use of 'fread' and 'read'. However, fread does
+// some really terrible buffering read ahead which is seriously no go for
+// audio streaming. Use only with open / close / read .
+//
+// Note. This is initialized to use 4 channel MMC, This results in a rate of 2ms per 32kB read
+// which is a rather awesome rate of about 16MB per second. However, it reuses a pin
+// that's used during the init sequence, which means, depending on the SD card (physical card)
+// it may not be possible to boot. In those cases, pop the card out, reboot, pop the
+// card back in. Or, switch back to a width of 1.
+// 
+// This also requires setting the EFUSE for the flash voltage. Most cards use v3.3 flash
+// and so does the AITHINKER AUDIO-KIT being used here, so you can just burn the value
+// using the efuse safely, saving a pin.
+
 
 
 esp_err_t init_sdcard_vfs(void)
@@ -314,12 +329,13 @@ esp_err_t test_sd_read_speed_vfs(const char *filepath)
             break;
         }
 
+        int64_t delta = esp_timer_get_time() - start_us;
+
         // just one little speed print
         if (total_read == 0) {
             ESP_LOGI(TAG, "read %d bytes in %lld us",r, delta);
         }
 
-        int64_t delta = esp_timer_get_time() - start_us;
         if (delta > (target_speed_us * 2) ) {
             ESP_LOGE(TAG, "READ SPIKE: %d bytes in %lld us offset %ud",r,delta, total_read);
             err = ESP_ERR_TIMEOUT;
@@ -341,138 +357,6 @@ esp_err_t test_sd_read_speed_vfs(const char *filepath)
     close(fd);
     return err;
 
-}
-
-
-
-static sdmmc_card_t *g_card;
-static FATFS g_fatfs;
-
-esp_err_t init_sdcard(void)
-{
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.max_freq_khz = 40000; // 40 MHz
-
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot_config.width = 4;  // Use 1 for 1-line mode, 4 for full 4-line if wired
-
-    // Optional: customize pins if not using defaults
-    // slot_config.clk = GPIO_NUM_14;
-    // slot_config.cmd = GPIO_NUM_15;
-    // slot_config.d0  = GPIO_NUM_2;
-    // slot_config.d1-d3 only used in 4-bit mode ( 4, 12, 13 )
-
-    // 3. Initialize card
-    ESP_ERROR_CHECK(sdmmc_host_init());
-    ESP_ERROR_CHECK(sdmmc_host_init_slot(SDMMC_HOST_SLOT_1, &slot_config));
-
-    g_card = calloc(1,sizeof(sdmmc_card_t));
-    ESP_ERROR_CHECK(sdmmc_card_init(&host, g_card));
-
-// TODO: this needs to be replaced with something exposed or find a way to expose it.
-//    esp_err_t ret = ff_diskio_register_sdmmc(0, g_card);  // 0 = volume number
-//    if (ret != ESP_OK) {
-//        ESP_LOGE(TAG, "diskio register failed: %s", esp_err_to_name(ret));
-//        return ret;
-//    }
-
-    // 4. Mount FAT filesystem directly (volume "0:")
-    FRESULT fres = f_mount(&g_fatfs, "0:", 1);
-    if (fres != FR_OK) {
-        printf("f_mount failed: %d\n", fres);
-        return ESP_FAIL;
-    }
-
-    printf("SD card mounted.\n");
-    sdmmc_card_print_info(stdout, g_card);
-
-    return ESP_OK;
-
-}
-
-
-esp_err_t test_sd_read_speed(const char *filepath)
-{
-    esp_err_t err = ESP_OK;
-    FIL f;
-    FRESULT f_res;
-
-    ESP_LOGI(TAG, "test sd read - 1");
-
-    f_res = f_open(&f, filepath, FA_READ);
-    if (FR_OK != f_res) {
-        ESP_LOGE(TAG, "Failed to open file: %s", filepath);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "test sd read - 2");
-
-
-    UINT read_sz = 32 * 1024;
-    uint8_t *buf;
-    size_t total_read = 0;
-
-//    buf = malloc(read_sz);
-    buf = heap_caps_malloc(read_sz, MALLOC_CAP_DMA);
-    if (buf == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate read buffer, value %p ",(void*) buf);
-        f_close(&f);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "test sd read - 3");
-
-    // NB: if there are no partial reads, you don't need to call f_eof. You can call only if partial read
-    while (!f_eof(&f)) {
-        int64_t start_us = esp_timer_get_time();
-        UINT r;
-
-        ESP_LOGI(TAG, "test sd read - 4");
-
-        f_res = f_read(&f, buf, read_sz, &r);
-        if (FR_OK != f_res ) {
-            ESP_LOGE(TAG, "READ test : read returned error %ud",f_res);
-            err = ESP_FAIL;
-            break;
-        }
-
-        ESP_LOGI(TAG, "test sd read - 5");
-
-        int64_t delta = esp_timer_get_time() - start_us;
-        if (delta > 80000) {
-            ESP_LOGE(TAG, "READ SPIKE: %d bytes in %lld us offset %ud",r,delta, total_read);
-            err = ESP_ERR_TIMEOUT;
-        }
-        else if (delta > 40000) {
-            ESP_LOGW(TAG, "READ SPIKE WARNING: %d bytes in %lld us offset %ud",r,delta, total_read);
-        }
-
-        if (r != read_sz) {
-            ESP_LOGI(TAG, "READ test: size not requested size is %zu should be %zu ",r, read_sz);
-        }
-
-        // else {
-        //     ESP_LOGI(TAG, "good read, %d bytes in %lld us",r,delta);
-        // }
-        // prints are slow?
-        // delta = esp_timer_get_time() - start_us;
-
-        ESP_LOGI(TAG, "test sd read - 6");
-
-        // attempt a read rate of 
-        int delay_ms = 100 - (delta / 1000); 
-        if (delay_ms > 0) {
-            vTaskDelay( pdMS_TO_TICKS(delay_ms) );
-        }
-                        // ESP_LOGI(TAG, "read %d bytes in %lld us",r, delta);
-        total_read += r;
-    }
-
-    ESP_LOGI(TAG, "test sd read - 7");
-
-    free(buf);
-    f_close(&f);
-    return err;
 }
 
 
@@ -531,6 +415,29 @@ void app_main(void)
     for (int i = 0; i < 20; i++ ) {
         if (ESP_OK == init_sdcard_vfs()) break;
         vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    //configure the es8388
+    // ok, we should decide all the actually useful parts of a "codec config"
+    // adc input channel
+    // dac output channel
+    // codec mode ()
+    // audio_hal_codec_i2s_iface (i2s_iface)
+    es_codec_config_t cfg = {
+        .adc_input = ADC_INPUT_DISABLE,       /*!< set adc channel es_adc_input */
+        .dac_output = (DAC_OUTPUT_LOUT_PWR | DAC_OUTPUT_ROUT_PWR | DAC_OUTPUT_LOUT1 | DAC_OUTPUT_ROUT1) ,     /*!< set dac channel es_dac_output */
+        .codec_mode = ES_CODEC_MODE_DECODE,     /*!< select codec mode: adc, dac or both */
+        .i2s_iface = {
+            .mode = ES_MODE_SLAVE,      /* es_iface_mode !< Audio interface operating mode: master or slave */
+            .fmt = ES_I2S_NORMAL,           /* es_uis_fmt !< Audio interface format */
+            .samples = ES_RATE_44KHZ,                      /*!< Number of samples per second (sampling rate) */
+            .bits = BIT_LENGTH_16BITS,     /*!< Audio bit depth */
+        } /*!< set I2S interface configuration */
+    };
+
+    esp_err_t ret = es8388_init(&cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "ES8388 init failed: %d",(int) ret);
     }
 
     // start a heartbeat task so I can tell everything's OK
