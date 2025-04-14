@@ -308,6 +308,20 @@ esp_err_t es8388_ctrl_state(es_codec_mode_t mode, es_ctrl_t ctrl_state);
  */
 esp_err_t es8388_pa_power(bool enable);
 
+/**
+ * @brief Write bytes to the device.
+ *
+ * @param buffer bytes to transmit
+ * @param bytes_to_write number of bytes in the buffer to transmit
+ * @param bytes_written (out) returns the number of bytes written
+ *
+ * @return
+ *     - ESP_ERR_INVALID_ARG
+ *     - ESP_OK
+ */
+esp_err_t es8388_write(const void *buffer, size_t bytes_to_write, size_t *bytes_written);
+
+
 #ifdef __cplusplus
 }
 #endif

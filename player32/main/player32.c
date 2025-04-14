@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "esp_log.h"
 
 #include "esp_vfs_fat.h"
@@ -58,6 +59,12 @@ void heartbeat_task(void *pvParameters)
 
 void generator_task(void *pvParameters)
 {
+
+    // subscribe the task to the watchdog so I can kick it later.
+    // so far not really doing TaskDelays here.
+
+    esp_task_wdt_add(NULL);
+
     play_sine_wave(440.0f, 0.75f);
 
     vTaskDelete(NULL);
@@ -139,10 +146,10 @@ void app_main(void)
     // start a heartbeat task so I can tell everything's OK
     xTaskCreate(heartbeat_task, "heartbeat_task", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
 
-    ret = init_i2s_std();
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "I2S generatorES8388 init failed: %d",(int) ret);
-    }
+    // ret = init_i2s_std();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGW(TAG, "I2S generatorES8388 init failed: %d",(int) ret);
+    // }
 
     // start an audio play task generating a tone so I can see if the init is OK
     xTaskCreate(generator_task, "generator_task", 4096, NULL, 7, NULL);

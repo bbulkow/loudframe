@@ -17,13 +17,15 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_task_wdt.h"
 
 #include "driver/i2s_std.h"
 
 #include "player32.h"
+#include "es8388.h"
+
 
 // local
-//#include "es8388.h"
 
 static const char *TAG = "sine_wave";
 
@@ -42,9 +44,14 @@ static i2s_chan_handle_t i2s_tx_chan = NULL; // Handle to the TX channel
 
 /**
  * @brief Initialize the standard I2S driver (TX only) for 44.1kHz, 16-bit stereo
+ * *
+ * * DO NOT USE. Use the driver's init sequence instead.
  */
 esp_err_t init_i2s_std(void)
 {
+
+    ESP_LOGI(TAG,"init_i2s_std: begin 1");
+
     // 1) Configure a single channel in Master role
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     // Optionally override defaults:
@@ -57,6 +64,8 @@ esp_err_t init_i2s_std(void)
         TAG,
         "Failed to allocate I2S channel"
     );
+
+    ESP_LOGI(TAG,"init_i2s_std: 2");
 
     // 3) Create a standard I2S configuration
     i2s_std_config_t std_cfg = {
@@ -79,6 +88,8 @@ esp_err_t init_i2s_std(void)
         },
     };
 
+    ESP_LOGI(TAG,"init_i2s_std: 3");
+
     // 4) Initialize the channel with the standard I2S configuration
     ESP_RETURN_ON_ERROR(
         i2s_channel_init_std_mode(i2s_tx_chan, &std_cfg),
@@ -86,12 +97,16 @@ esp_err_t init_i2s_std(void)
         "Failed to init I2S channel"
     );
 
+    ESP_LOGI(TAG,"init_i2s_std: 4");
+
     // 5) Enable the channel before using it
     ESP_RETURN_ON_ERROR(
         i2s_channel_enable(i2s_tx_chan),
         TAG,
         "Failed to enable I2S channel"
     );
+
+    ESP_LOGI(TAG,"init_i2s_std: 5");
 
     return ESP_OK;
 }
@@ -102,18 +117,23 @@ esp_err_t init_i2s_std(void)
 /**
  * @brief Generate and play a 16-bit stereo sine wave at 44.1 kHz without boundary clicks.
  *        The buffer size is chosen to be an integer multiple of the wave period.
+ * 
+ * Always transmits to the ES8388 driver
  *
  * @param frequency Desired frequency in Hz
  * @param amplitude Volume in [0.0, 1.0]
  */
 void play_sine_wave(float frequency, float amplitude)
 {
+
+    ESP_LOGI(TAG,"Play sine wave: begin");
+
     // 1) Calculate how many samples constitute one period of the sine wave
     //    at 44.1 kHz. Then round to the nearest integer to avoid fractional samples.
     float exact_period = (float)SAMPLE_RATE / frequency;
     int period_samples = (int)(exact_period + 0.5f);
     if (period_samples <= 0) {
-        printf("Invalid period calculation\n");
+        ESP_LOGE(TAG,"Invalid period calculation");
         return;
     }
 
@@ -127,7 +147,7 @@ void play_sine_wave(float frequency, float amplitude)
     // 3) Allocate a buffer for one full cycle (stereo interleaved)
     int16_t *audio_buf = (int16_t *)malloc(total_bytes);
     if (!audio_buf) {
-        printf("Failed to allocate audio buffer\n");
+        ESP_LOGE(TAG,"Failed to allocate audio buffer");
         return;
     }
 
@@ -149,11 +169,32 @@ void play_sine_wave(float frequency, float amplitude)
     }
 
     // 5) Continuously play this buffer
-    size_t bytes_written = 0;
+    size_t tot_bytes_written = 0;
+    // while (1) {
+    //     // i2s_tx_chan was created in init_i2s_std()
+    //     i2s_channel_write(i2s_tx_chan, audio_buf, total_bytes, &bytes_written, portMAX_DELAY);
+    //     // In production code, handle any potential write errors or break conditions
+    // }
+    int kicker = 0;
+
     while (1) {
-        // i2s_tx_chan was created in init_i2s_std()
-        i2s_channel_write(i2s_tx_chan, audio_buf, total_bytes, &bytes_written, portMAX_DELAY);
-        // In production code, handle any potential write errors or break conditions
+
+        size_t bytes_written = 0;
+        esp_err_t ret = es8388_write(audio_buf, total_bytes, &bytes_written);
+        tot_bytes_written += bytes_written;
+        if (ret != ESP_OK) {
+            ESP_LOGI(TAG, "play sine wave: returned error %d written %zu tot written %zu", ret, bytes_written, tot_bytes_written);
+        }
+
+        // this basically doesn't block, so call a yeild to update the watchdog and give other processes a chance
+        // NOTE: kicking the watchdog doesn't seem to be helping.
+        // only a delay with greater than 10ms seems to give us watchdog.
+        taskYIELD();
+        esp_task_wdt_reset();
+        if (kicker++ % 30 == 0) { // every 30 loops do a long enough delay
+            vTaskDelay(pdMS_TO_TICKS(11));
+        }
+
     }
 
     // Not reached here in infinite loop

@@ -23,8 +23,10 @@
  */
 
 #include <string.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_check.h" // For ESP_RETURN_ON_ERROR macro
 
@@ -319,9 +321,12 @@ esp_err_t es8388_i2s_config_clock(es_i2s_clock_t cfg)
  */
 
 static esp_err_t es_i2s_init(void) {
-    esp_err_t ret = ESP_OK;
+    //esp_err_t ret = ESP_OK;
 
     ESP_LOGI(TAG, "Initializing I2S for ES8388...");
+
+// Note. At 44.1khz, this works out to a dma buffer time of 22.68us.
+// this means about 5.44us between a full buffer and an empty buffer.
 
     // 1. Configure I2S Channel (Common settings)
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(ES8388_CODEC_I2S_PORT, I2S_ROLE_MASTER);
@@ -778,5 +783,55 @@ esp_err_t es8388_pa_power(bool enable)
         res = gpio_set_level(ES8388_PA_ENABLE_GPIO, 0);
     }
     return res;
+}
+
+/*
+* Writer functions. 
+* 
+* This blocks until the bytes are written.
+* Note that due to buffering, we can't really delay here. The DMA buffer is only about 5ms deep, 
+* and the clock granularity
+
+* return values for i2s_channel_write
+* ESP_OK Write successfully
+* ESP_ERR_INVALID_ARG NULL pointer or this handle is not TX handle
+* ESP_ERR_TIMEOUT Writing timeout, no writing event received from ISR within ticks_to_wait
+* ESP_ERR_INVALID_STATE I2S is not ready to write
+*
+* Interesting point on the timeout. MS here converts to ticks, and ticks are at 100hz, therefore
+* the underlying granularity is 10ms, which is significantly deeper than the DMA depth. 
+* it also means calling with less than 10ms will mean the function is effectively non-blocking,
+* which could cause problems for other unit.
+*/
+
+// Unified write function
+esp_err_t es8388_write(const void *buffer, size_t bytes_to_write, size_t *bytes_written_r) {
+
+    size_t bytes_written = 0;
+    uint8_t *o_buf = (uint8_t *) buffer;
+    int64_t start_us = esp_timer_get_time();
+    while (bytes_written < bytes_to_write) {
+        size_t b_w = 0;
+        esp_err_t ret = i2s_channel_write(g_i2s_tx_handle, o_buf + bytes_written, bytes_to_write - bytes_written, &b_w, portMAX_DELAY);
+        bytes_written += b_w;
+        if (ret != ESP_OK && ret != ESP_ERR_TIMEOUT) {
+            ESP_LOGW(TAG, "i2s_channel_write: returned failure code returning error %d", ret);
+            *bytes_written_r = bytes_written;
+            return (ret);
+        }
+    }
+    // ESP_LOGI(TAG, "es8388 write: took %lld us ", esp_timer_get_time() - start_us );
+
+    *bytes_written_r = bytes_written;
+    return(ESP_OK);
+
+    // while (1) {
+    //     // i2s_tx_chan was created in init_i2s_std()
+    //     i2s_channel_write(i2s_tx_chan, audio_buf, total_bytes, &bytes_written, portMAX_DELAY);
+    //     // In production code, handle any potential write errors or break conditions
+    // }
+
+
+
 }
 
