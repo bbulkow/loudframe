@@ -42,6 +42,7 @@
 #include <errno.h>
 
 // local
+#include "player32.h"
 #include "es8388.h"
 
 static const char *TAG = "player32";
@@ -368,6 +369,14 @@ void heartbeat_task(void *pvParameters)
     }
 }
 
+void generator_task(void *pvParameters)
+{
+    play_sine_wave(440.0f, 0.75f);
+
+    vTaskDelete(NULL);
+}
+
+
 void dump_tasks(void) {
 
     const size_t line_size = 64;
@@ -442,6 +451,15 @@ void app_main(void)
 
     // start a heartbeat task so I can tell everything's OK
     xTaskCreate(heartbeat_task, "heartbeat_task", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+
+    ret = init_i2s_std();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "I2S generatorES8388 init failed: %d",(int) ret);
+    }
+
+    // start an audio play task generating a tone so I can see if the init is OK
+    xTaskCreate(generator_task, "generator_task", 4096, NULL, 7, NULL);
+
 
 #if 1
     // hardcode
