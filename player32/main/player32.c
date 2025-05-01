@@ -60,6 +60,9 @@ void heartbeat_task(void *pvParameters)
 void generator_task(void *pvParameters)
 {
 
+    ESP_LOGI(TAG, "Generator: task init");
+
+
     // subscribe the task to the watchdog so I can kick it later.
     // so far not really doing TaskDelays here.
 
@@ -140,7 +143,18 @@ void app_main(void)
 
     esp_err_t ret = es8388_init(&cfg);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "ES8388 init failed: %d",(int) ret);
+        ESP_LOGE(TAG, "ES8388 init failed: %d",(int) ret);
+    }
+
+    ret = es8388_start(ES_MODULE_DAC);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "ES8388 start failed: %d",(int) ret);
+    }
+
+    // 
+    ret = es8388_set_volume(80);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "ES8388 set volume failed: %d",(int) ret);
     }
 
     // start a heartbeat task so I can tell everything's OK
