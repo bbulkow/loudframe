@@ -3,6 +3,7 @@
 #include <errno.h>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/ringbuf.h"
 #include "esp_log.h"
 
 enum FILETYPE_ENUM {
@@ -10,6 +11,30 @@ enum FILETYPE_ENUM {
     FILETYPE_MP3,
     FILETYPE_WAV
 };
+
+#define WAV_READER_READ_SIZE (8 * 1024) // Example size, adjust as needed
+#define WAV_READER_RINGBUF_SIZE (16 * 1024) // Example size, adjust as needed
+
+
+// Structure that includes key information that you can get from a WAV header that is necessary
+// for playback, like sample size, speed, rate, format.
+
+typedef struct {
+    char *filepath;
+    int fd;
+    RingbufHandle_t ringbuf;
+    uint8_t *ringbuf_data_storage;
+    StaticRingbuffer_t *ringbuf_struct_storage;
+    
+    // wav parameters
+    uint16_t num_channels;      /**< Number of audio channels (1=mono, 2=stereo) */
+    uint32_t sample_rate;       /**< Sample rate in Hz (e.g., 44100, 48000) */
+    uint16_t bits_per_sample;   /**< Bits per sample (16 or 24) */
+    uint32_t data_size;         /**< Size of audio data in bytes */
+    uint16_t block_align;       /**< Block alignment (channels * bits_per_sample / 8) */
+    off_t data_offset;          /**< Offset to the beginning of the data chunk */
+    uint32_t bytes_per_sec;       /**< Average bytes per second */
+} wav_reader_state_t;
 
 
 esp_err_t init_i2s_std(void);
@@ -25,6 +50,17 @@ esp_err_t init_sdcard_vfs(void);
 esp_err_t test_sd_fread_speed_vfs(const char *filepath);
 
 esp_err_t test_sd_read_speed_vfs(const char *filepath);
+
+// wav_reader
+#ifdef __cplusplus
+extern "C" {
+#endif
+esp_err_t wav_reader_init(wav_reader_state_t *state );
+void wav_reader_deinit(wav_reader_state_t *state);
+void wav_reader_task(void* arg);
+#ifdef __cplusplus
+}
+#endif
 
 // SDCARD pin config (taken from the board_defs file in esp-adf )
 #define FUNC_SDCARD_EN            (1)

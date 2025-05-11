@@ -19,7 +19,6 @@
 #include "esp_log.h"
 
 #include "esp_vfs_fat.h"
-#include "ff.h" /// more direct flash functions
 
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
@@ -197,6 +196,22 @@ void app_main(void)
     char music_filename[] = "0:test-orig.mp3";
 #endif
 
+    // start the task that reads hte wav file.
+    // I generally hate calloc but it's OK here.
+    wav_reader_state_t *wav_state = calloc(1, sizeof(wav_reader_state_t));
+    if (wav_state == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for header");
+    }
+    wav_state->filepath = &music_filename[0];
+
+     if (ESP_OK != wav_reader_init(wav_state)) {
+        ESP_LOGE(TAG, "Could not initialize wav reader ");
+     }
+
+    // TODO: need to pull the code that creates the ring buffer and reads the wav header
+    xTaskCreate(wav_reader_task, "wav_reader_task", 4096, (void *) wav_state, 7, NULL);
+
+#if 0
     for (int i=0; i<100; i++) {
         if ( test_sd_read_speed_vfs(music_filename) != ESP_OK ) {
             ESP_LOGE(TAG, " READ SPEED FAILED pass %d ",i);
@@ -207,7 +222,7 @@ void app_main(void)
 
         // dump_tasks();
     }
-
+#endif
 
     vTaskDelay(pdMS_TO_TICKS(10000));
     // free(music_filename);
