@@ -25,6 +25,8 @@ typedef struct {
     RingbufHandle_t ringbuf;
     uint8_t *ringbuf_data_storage;
     StaticRingbuffer_t *ringbuf_struct_storage;
+
+    bool done;
     
     // wav parameters
     uint16_t num_channels;      /**< Number of audio channels (1=mono, 2=stereo) */
@@ -52,15 +54,10 @@ esp_err_t test_sd_fread_speed_vfs(const char *filepath);
 esp_err_t test_sd_read_speed_vfs(const char *filepath);
 
 // wav_reader
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 esp_err_t wav_reader_init(wav_reader_state_t *state );
 void wav_reader_deinit(wav_reader_state_t *state);
 void wav_reader_task(void* arg);
-#ifdef __cplusplus
-}
-#endif
 
 // SDCARD pin config (taken from the board_defs file in esp-adf )
 #define FUNC_SDCARD_EN            (1)
