@@ -28,6 +28,19 @@
 
 static const char *TAG = "es8388_player";
 
+/**
+ * @brief Plays a WAV file using the ES8388 audio codec.
+ * @brief Plays a WAV file using the ES8388 audio codec. 
+ *        This function reads audio data from a ring buffer and writes it to the ES8388 DAC.
+ *
+ * @pre The ES8388 codec must be initialized and started (DAC mode) before calling this function.
+ * @pre The wav_state structure must be initialized, including the ring buffer containing the audio data.
+ *      The ring buffer should be filled with audio data from a WAV file, typically by the wav_reader_task.
+ *
+ * @param wav_state Pointer to the wav_reader_state_t structure containing WAV file information and playback state.
+ */
+
+
 esp_err_t play_es8388_wav(wav_reader_state_t *wav_state) {
     esp_err_t ret = ESP_OK;
     size_t total_bytes_written = 0;
@@ -40,8 +53,11 @@ esp_err_t play_es8388_wav(wav_reader_state_t *wav_state) {
         size_t bytes_read = 0;
         size_t bytes_written = 0;
 
-        // Receive data from the ring buffer
-        data = (uint8_t *)xRingbufferReceive(wav_state->ringbuf, &bytes_read, 0); // Non-blocking read
+        // Receive ALL data from the ring buffer - suspected incorrect because it'll not give the "double buffer"
+        // effect we are hoping for
+        // data = (uint8_t *)xRingbufferReceive(wav_state->ringbuf, &bytes_read, 0); // Non-blocking read
+        // Trying this: read no more than X, which will get better slicing
+        data = (uint8_t *)xRingbufferReceiveUpTo(wav_state->ringbuf, &bytes_read, 0, ES8388_PLAYER_WRITE_SIZE);
         if (data) {
             if (bytes_read > 0) {
                 size_t total_written = 0;
@@ -65,10 +81,13 @@ esp_err_t play_es8388_wav(wav_reader_state_t *wav_state) {
             // Return the item back to the ring buffer
             vRingbufferReturnItem(wav_state->ringbuf, (void *)data);
         } else {
+
                 // No data available in the ring buffer
                 // This can happen, so it's not necessarily an error.
                 // You might want to add a small delay here to avoid busy-waiting.
                 // vTaskDelay(1 / portTICK_PERIOD_MS);
+                ESP_LOGI(TAG, "UNDERFLOW");
+                vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
 

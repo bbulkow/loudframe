@@ -12,6 +12,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <errno.h>
 #include <inttypes.h>
 
@@ -109,13 +110,8 @@ static esp_err_t wav_header_read(wav_reader_state_t *state) {
                 return ESP_FAIL;
             }
 
-            uint16_t audio_format;
-            if (read(fd, &audio_format, 2) != 2) {
+            if (read(fd, &state->audio_format, 2) != 2) {
                 ESP_LOGE(TAG, "Failed to read audio format");
-                return ESP_FAIL;
-            }
-            if (audio_format != 1) {
-                ESP_LOGE(TAG, "Unsupported audio format: %" PRIu16 " (only PCM supported)", audio_format);
                 return ESP_FAIL;
             }
 
@@ -168,10 +164,18 @@ static esp_err_t wav_header_read(wav_reader_state_t *state) {
         return ESP_FAIL;
     }
 
+    ESP_LOGI(TAG, "read wav header, found the following: ");
+    ESP_LOGI(TAG, "audio_format: %d", (int) state->audio_format);
+    ESP_LOGI(TAG, "num_channels: %d", (int) state->num_channels);
+    ESP_LOGI(TAG, "sample_rate: %d", (int) state->sample_rate);
+    ESP_LOGI(TAG, "bits_per_sample: %u", (unsigned int) state->bits_per_sample);
+    ESP_LOGI(TAG, "data_size: %u", (unsigned int) state->data_size);
+    ESP_LOGI(TAG, "block_align: %d", (int)state->block_align);
+    ESP_LOGI(TAG, "data_offset: %jd", (intmax_t)state->data_offset);
+    ESP_LOGI(TAG, "bytes_per_sec: %u", (unsigned int) state->bytes_per_sec);
+
     return ESP_OK;
 }
-
-
 
 
 /**
@@ -183,14 +187,14 @@ static esp_err_t wav_reader_init_ringbuf( wav_reader_state_t *state ) {
 
     ESP_LOGI(TAG, "initalizing ringbuf");
 
-
     state->ringbuf_data_storage = (uint8_t*)heap_caps_malloc(WAV_READER_RINGBUF_SIZE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!state->ringbuf_data_storage) {
         ESP_LOGE(TAG, "Failed to allocate ring buffer data storage");
         return ESP_FAIL;
     }
 
-    // NB: 8 bit is required, as there are Testandset. If you just do internal you seem to get something that doesn't work.
+    // NB: 8 bit is required, as there are Testandset, in the structure part. 
+    // If you just do internal you seem to get something that doesn't work.
     state->ringbuf_struct_storage = (StaticRingbuffer_t *) heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
     if (!state->ringbuf_struct_storage) {
         ESP_LOGE(TAG, "Failed to allocate ring buffer struct storage");
@@ -231,11 +235,11 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
     // Calculate initial offset within the first aligned block
     size_t current_read_size = WAV_READER_READ_SIZE - ( state->data_offset % WAV_READER_READ_SIZE );
 
-    ESP_LOGI(TAG, "start: try read %zu bytes from file, offset %jd", current_read_size, (intmax_t) state->data_offset);
+    ESP_LOGD(TAG, "start: try read %zu bytes from file, offset %jd", current_read_size, (intmax_t) state->data_offset);
 
     // note about memory pool. Starting with MALLOC_CAP_INTERNAL, as I think I have enough space,
     // if there's not enough space, switching to MALLOC_CAP_SPIRAM is probably a good idea
-    uint8_t* read_buffer = (uint8_t*)heap_caps_malloc(WAV_READER_READ_SIZE, MALLOC_CAP_DEFAULT);
+    uint8_t* read_buffer = (uint8_t*)heap_caps_malloc(WAV_READER_READ_SIZE, MALLOC_CAP_INTERNAL);
     if (!read_buffer) {
         ESP_LOGE(TAG, "Failed to allocate read buffer");
         return ESP_FAIL;
@@ -258,6 +262,12 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
             current_read_size = state->data_size - total_bytes_read;
         }
 
+        if (current_read_size > WAV_READER_READ_SIZE) {
+            ESP_LOGE(TAG, "READ TOO MUCH OVERWRITE %zu should be max %zu",current_read_size,WAV_READER_READ_SIZE);
+        }
+
+        int64_t start_time = esp_timer_get_time();
+
         bytes_read = read(state->fd, read_buffer, current_read_size);
         if (bytes_read != current_read_size) {
             if (bytes_read == 0) {
@@ -269,13 +279,38 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
                 goto cleanup; // Error
             }
         }
-        ESP_LOGI(TAG, "read %zu bytes from file, writing to ringbuf %p", bytes_read, state->ringbuf);
+        int64_t delta = esp_timer_get_time() - start_time;
+        if (delta > 4000) { // 1000 microseconds = 1 millisecond, adjust as needed
+            ESP_LOGW(TAG, "Read operation took longer than expected: %lld us %zu bytes read", delta, bytes_read);
+        }
+
+        // ESP_LOGD(TAG, "read %zu bytes from file, writing to ringbuf %p", bytes_read, state->ringbuf);
 
         // Send data to ring buffer with infinite timeout
+        // this should mean when the entire buffer goes in, the delay is released, and we can turn around
+        // the next read, which becomes not polling but immediate. The ring buffer itself size should then be
+        // sized bigger than 2x the sector read size, so this turns around. Problems could happen if 
+        // there's something about the scheduler that delays the return from this call?
+
+        start_time = esp_timer_get_time();
+
         BaseType_t result = xRingbufferSend(state->ringbuf, read_buffer, bytes_read, portMAX_DELAY);
         if (result != pdTRUE) {
-            ESP_LOGE(TAG, "Failed to send data to ring buffer");
+            ESP_LOGE(TAG, "Failed to send data to ring buffer - probable timeout? - continuing");
             // Handle ring buffer full condition, potentially by waiting or retrying
+        }
+
+        // ok, if we are writing 4k, then we should have a combined speed of about 23ms. If the read time of the bytes
+        // is about 4k, we should tot to about 18ms.
+        delta = esp_timer_get_time() - start_time;
+        if (delta > 40000) { // 1000 microseconds = 1 millisecond, adjust as needed
+            ESP_LOGW(TAG, "RingBuffer Send operation took longer than expected: %lld us for %zu ", delta, bytes_read);
+        }
+        // expect to get control when there's still a fair amount of data, check if we're underflowing
+        // although it's true after the first write because we're still filling it!
+        size_t ringBufFreeSz = xRingbufferGetCurFreeSize(state->ringbuf);
+        if ( WAV_READER_RINGBUF_SIZE - ringBufFreeSz < 4096 ) {
+            ESP_LOGW(TAG, "RingBuffer full space smaller than expected after write: %zu bytes", WAV_READER_RINGBUF_SIZE - ringBufFreeSz);
         }
 
         total_bytes_read += bytes_read;
@@ -285,6 +320,7 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
     ESP_LOGI(TAG, "Finished reading audio data. Total bytes read: %zu", total_bytes_read);
 cleanup:
     free(read_buffer);
+    ESP_LOGI(TAG, "wav_reader: returning with error %d",err);
     return err;
 }
 
@@ -348,8 +384,18 @@ void wav_reader_deinit(wav_reader_state_t *state ) {
 void wav_reader_task(void* arg) {
 
     wav_reader_state_t * state = (wav_reader_state_t *)arg;
+    esp_err_t err;
 
-    wav_read(state);
+    do {
+
+        ESP_LOGI(TAG, "task starting wav read");
+        err = wav_read(state);
+        ESP_LOGI(TAG, "TASK ending wav read");
+
+    } while(err == ESP_OK);
+
+    ESP_LOGE(TAG, "wav reader TASK:  exiting with error %d", err);
+    state->done = true;
 
 // haven't decided who will destructyfiy the state
     vTaskDelete(NULL);

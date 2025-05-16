@@ -12,8 +12,12 @@ enum FILETYPE_ENUM {
     FILETYPE_WAV
 };
 
-#define WAV_READER_READ_SIZE (8 * 1024) // Example size, adjust as needed
-#define WAV_READER_RINGBUF_SIZE (16 * 1024) // Example size, adjust as needed
+// size to read from file system
+#define WAV_READER_READ_SIZE (4 * 1024) // Example size, adjust as needed
+// size to make the ringbuf
+#define WAV_READER_RINGBUF_SIZE (32 * 1024) // Example size, adjust as needed
+// size to transmit to es8388 to ensure buffer size
+#define ES8388_PLAYER_WRITE_SIZE (8*1024)
 
 
 // Structure that includes key information that you can get from a WAV header that is necessary
@@ -29,6 +33,7 @@ typedef struct {
     bool done;
     
     // wav parameters
+    uint16_t audio_format;      /** 1 is PCM, 3 is float */
     uint16_t num_channels;      /**< Number of audio channels (1=mono, 2=stereo) */
     uint32_t sample_rate;       /**< Sample rate in Hz (e.g., 44100, 48000) */
     uint16_t bits_per_sample;   /**< Bits per sample (16 or 24) */
@@ -41,6 +46,8 @@ typedef struct {
 
 esp_err_t init_i2s_std(void);
 
+
+
 void play_sine_wave(float frequency, float amplitude);
 
 int music_filename_validate_vfs( const char *filename, enum FILETYPE_ENUM *filetype_o) ;
@@ -52,6 +59,10 @@ esp_err_t init_sdcard_vfs(void);
 esp_err_t test_sd_fread_speed_vfs(const char *filepath);
 
 esp_err_t test_sd_read_speed_vfs(const char *filepath);
+
+// output player for the es8388. Make sure it's initialized first using the driver.
+
+esp_err_t play_es8388_wav(wav_reader_state_t *wav_state);
 
 // wav_reader
 

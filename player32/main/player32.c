@@ -61,7 +61,6 @@ void generator_task(void *pvParameters)
 
     ESP_LOGI(TAG, "Generator: task init");
 
-
     // subscribe the task to the watchdog so I can kick it later.
     // so far not really doing TaskDelays here.
 
@@ -72,6 +71,25 @@ void generator_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+void es8388_player_task(void *pvParameters)
+{
+
+    ESP_LOGI(TAG, "Es8388 player: task init");
+
+    wav_reader_state_t *wav_state = (wav_reader_state_t *)pvParameters;
+
+    // don't think I need this now, because this task isn't CPU hard looped -
+    // the ringbuf or the i2s routes should kick it?
+    // esp_task_wdt_add(NULL);
+
+    do {
+        ESP_LOGI(TAG, "Starting WAV file read");
+        play_es8388_wav(wav_state);
+        ESP_LOGI(TAG, "ENDING WAV file read");
+    } while (1);
+
+    vTaskDelete(NULL);
+}
 
 void dump_tasks(void) {
 
@@ -164,8 +182,7 @@ void app_main(void)
     //     ESP_LOGW(TAG, "I2S generatorES8388 init failed: %d",(int) ret);
     // }
 
-    // start an audio play task generating a tone so I can see if the init is OK
-    xTaskCreate(generator_task, "generator_task", 4096, NULL, 7, NULL);
+
 
 
 #if 1
@@ -210,6 +227,19 @@ void app_main(void)
 
     // TODO: need to pull the code that creates the ring buffer and reads the wav header
     xTaskCreate(wav_reader_task, "wav_reader_task", 4096, (void *) wav_state, 7, NULL);
+
+    // TODO: since we have information about the file, we should either set the ES8388 correctly,
+    // or validate that it is correct
+
+    // using the wav ringbuf, play the contents to the DAC
+    // lower priority than the file reader
+    xTaskCreate(es8388_player_task, "es8388_player_task", 4096, (void *) wav_state, 8, NULL);
+
+    // start an audio play task generating a tone so I can see if the init is OK
+    // This is a breadcrumb. Remove other uses of the 8388 if you want to see if
+    // this is still working.
+    // xTaskCreate(generator_task, "generator_task", 4096, NULL, 7, NULL);
+
 
 #if 0
     for (int i=0; i<100; i++) {
