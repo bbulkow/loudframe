@@ -225,7 +225,8 @@ void app_main(void)
         ESP_LOGE(TAG, "Could not initialize wav reader ");
      }
 
-    // TODO: need to pull the code that creates the ring buffer and reads the wav header
+    // wav reader puts data in a ringbuf.
+    // TODO: use something like xTaskNotifyGive to notify this main task when it's exiting.
     xTaskCreate(wav_reader_task, "wav_reader_task", 4096, (void *) wav_state, 7, NULL);
 
     // TODO: since we have information about the file, we should either set the ES8388 correctly,
@@ -254,7 +255,10 @@ void app_main(void)
     }
 #endif
 
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    // UGLY TODO! Need to have something other than a hard block
+    vTaskDelay(portMAX_DELAY);
+    // and a print to remember what I'm doing stuffs
+    ESP_LOGE(TAG, "RESTARTING, end of main loop ");
     // free(music_filename);
     esp_restart();
 
