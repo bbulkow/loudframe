@@ -809,7 +809,7 @@ esp_err_t es8388_write(const void *buffer, size_t bytes_to_write, size_t *bytes_
 
     size_t bytes_written = 0;
     uint8_t *o_buf = (uint8_t *) buffer;
-    int64_t start_us = esp_timer_get_time();
+    // int64_t start_us = esp_timer_get_time();
     while (bytes_written < bytes_to_write) {
         size_t b_w = 0;
         esp_err_t ret = i2s_channel_write(g_i2s_tx_handle, o_buf + bytes_written, bytes_to_write - bytes_written, &b_w, portMAX_DELAY);
