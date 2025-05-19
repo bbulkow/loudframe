@@ -29,87 +29,11 @@
 
 static const char *TAG = "sine_wave";
 
-static i2s_chan_handle_t i2s_tx_chan = NULL; // Handle to the TX channel
+// static i2s_chan_handle_t i2s_tx_chan = NULL; // Handle to the TX channel
 
 #define SAMPLE_RATE  44100
 
 // Pins for the aithinker audio kit. Will refactor when it's working.
-
-#define PIN_I2S_MCLK   GPIO_NUM_0  // Replace x with your MCLK pin
-#define PIN_I2S_BCLK   GPIO_NUM_27  // Replace y with your BCLK pin
-#define PIN_I2S_WS     GPIO_NUM_25  // Replace z with your WS (LRCLK) pin
-#define PIN_I2S_DOUT   GPIO_NUM_26  // Replace w with your data-out pin
-#define PIN_I2S_DIN   GPIO_NUM_35  // Replace w with your data-out pin
-
-
-/**
- * @brief Initialize the standard I2S driver (TX only) for 44.1kHz, 16-bit stereo
- * *
- * * DO NOT USE. Use the driver's init sequence instead.
- */
-esp_err_t init_i2s_std(void)
-{
-
-    ESP_LOGI(TAG,"init_i2s_std: begin 1");
-
-    // 1) Configure a single channel in Master role
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    // Optionally override defaults:
-    // chan_cfg.dma_desc_num = 8;
-    // chan_cfg.dma_frame_num = 240;
-
-    // 2) Create the channel: TX handle assigned, RX is NULL for TX-only
-    ESP_RETURN_ON_ERROR(
-        i2s_new_channel(&chan_cfg, &i2s_tx_chan, NULL),
-        TAG,
-        "Failed to allocate I2S channel"
-    );
-
-    ESP_LOGI(TAG,"init_i2s_std: 2");
-
-    // 3) Create a standard I2S configuration
-    i2s_std_config_t std_cfg = {
-        // Clock config for 44.1 kHz
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
-        // 16 bits per sample, stereo
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
-        // Pin configuration
-        .gpio_cfg = {
-            .mclk = PIN_I2S_MCLK,
-            .bclk = PIN_I2S_BCLK,
-            .ws   = PIN_I2S_WS,
-            .dout = PIN_I2S_DOUT,
-            .din  = I2S_GPIO_UNUSED,  // Not receiving
-            .invert_flags = {
-                .mclk_inv = false,
-                .bclk_inv = false,
-                .ws_inv   = false,
-            },
-        },
-    };
-
-    ESP_LOGI(TAG,"init_i2s_std: 3");
-
-    // 4) Initialize the channel with the standard I2S configuration
-    ESP_RETURN_ON_ERROR(
-        i2s_channel_init_std_mode(i2s_tx_chan, &std_cfg),
-        TAG,
-        "Failed to init I2S channel"
-    );
-
-    ESP_LOGI(TAG,"init_i2s_std: 4");
-
-    // 5) Enable the channel before using it
-    ESP_RETURN_ON_ERROR(
-        i2s_channel_enable(i2s_tx_chan),
-        TAG,
-        "Failed to enable I2S channel"
-    );
-
-    ESP_LOGI(TAG,"init_i2s_std: 5");
-
-    return ESP_OK;
-}
 
 
 #define PI           3.14159265359
