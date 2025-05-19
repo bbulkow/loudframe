@@ -44,6 +44,9 @@ static const char *TAG = "es8388_player";
 esp_err_t play_es8388_wav(wav_reader_state_t *wav_state) {
     esp_err_t ret = ESP_OK;
     size_t total_bytes_written = 0;
+    int underflow_counter = 0;
+    int64_t glitch_time = 0;
+
 
     ESP_LOGI(TAG, "ES8388 player startingw");
 
@@ -52,6 +55,7 @@ esp_err_t play_es8388_wav(wav_reader_state_t *wav_state) {
         uint8_t *data = NULL;
         size_t bytes_read = 0;
         size_t bytes_written = 0;
+
 
         // Receive ALL data from the ring buffer - suspected incorrect because it'll not give the "double buffer"
         // effect we are hoping for
@@ -81,13 +85,21 @@ esp_err_t play_es8388_wav(wav_reader_state_t *wav_state) {
             // Return the item back to the ring buffer
             vRingbufferReturnItem(wav_state->ringbuf, (void *)data);
         } else {
+            underflow_counter++;
+            if ((underflow_counter % 10) == 0) {
+                print_task_stats();
+            }
 
-                // No data available in the ring buffer
-                // This can happen, so it's not necessarily an error.
-                // You might want to add a small delay here to avoid busy-waiting.
-                // vTaskDelay(1 / portTICK_PERIOD_MS);
-                ESP_LOGI(TAG, "UNDERFLOW");
-                vTaskDelay(pdMS_TO_TICKS(1));
+            // No data available in the ring buffer
+            // This can happen, so it's not necessarily an error.
+            // You might want to add a small delay here to avoid busy-waiting.
+
+            // vTaskDelay(1 / portTICK_PERIOD_MS);
+            int64_t now = esp_timer_get_time() / 1000;
+            ESP_LOGI(TAG, "UNDERFLOW %d glitchcount %lld",underflow_counter,now - glitch_time);
+            glitch_time = now;
+
+            vTaskDelay(pdMS_TO_TICKS(50));
         }
     }
 

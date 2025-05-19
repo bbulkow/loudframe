@@ -13,11 +13,14 @@ enum FILETYPE_ENUM {
 };
 
 // size to read from file system
-#define WAV_READER_READ_SIZE (4 * 1024) // Example size, adjust as needed
+#define WAV_READER_READ_SIZE (8 * 1024) // Example size, adjust as needed
 // size to make the ringbuf
-#define WAV_READER_RINGBUF_SIZE (32 * 1024) // Example size, adjust as needed
+#define WAV_READER_RINGBUF_SIZE (64 * 1024) // Example size, adjust as needed
 // size to transmit to es8388 to ensure buffer size
-#define ES8388_PLAYER_WRITE_SIZE (8*1024)
+#define ES8388_PLAYER_WRITE_SIZE (4 * 1024)
+
+void print_task_list();
+void print_task_stats();
 
 
 // Structure that includes key information that you can get from a WAV header that is necessary
@@ -49,26 +52,27 @@ esp_err_t init_i2s_std(void);
 
 
 void play_sine_wave(float frequency, float amplitude);
-
 int music_filename_validate_vfs( const char *filename, enum FILETYPE_ENUM *filetype_o) ;
-
 int music_filename_get_vfs( char **file_o, enum FILETYPE_ENUM *filetype_o);
-
 esp_err_t init_sdcard_vfs(void);
-
 esp_err_t test_sd_fread_speed_vfs(const char *filepath);
-
 esp_err_t test_sd_read_speed_vfs(const char *filepath);
 
-// output player for the es8388. Make sure it's initialized first using the driver.
+// output player for the es8388. Make sure it's initialized first using wav_reader.
 
 esp_err_t play_es8388_wav(wav_reader_state_t *wav_state);
 
 // wav_reader
-
+esp_err_t wav_reader_header_read(wav_reader_state_t *state);
 esp_err_t wav_reader_init(wav_reader_state_t *state );
 void wav_reader_deinit(wav_reader_state_t *state);
 void wav_reader_task(void* arg);
+
+// tone_reader
+
+esp_err_t tone_reader_init(wav_reader_state_t *state );
+void tone_reader_deinit(wav_reader_state_t *state);
+void tone_reader_task(void* arg);
 
 // SDCARD pin config (taken from the board_defs file in esp-adf )
 #define FUNC_SDCARD_EN            (1)

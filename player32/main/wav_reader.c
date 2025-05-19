@@ -57,7 +57,7 @@
 #endif
 
 
-static esp_err_t wav_header_read(wav_reader_state_t *state) {
+esp_err_t wav_reader_header_read(wav_reader_state_t *state) {
     int fd = state->fd;
     
     if (lseek(fd, 0, SEEK_SET) < 0) {
@@ -239,7 +239,9 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
 
     // note about memory pool. Starting with MALLOC_CAP_INTERNAL, as I think I have enough space,
     // if there's not enough space, switching to MALLOC_CAP_SPIRAM is probably a good idea
-    uint8_t* read_buffer = (uint8_t*)heap_caps_malloc(WAV_READER_READ_SIZE, MALLOC_CAP_INTERNAL);
+    uint8_t* read_buffer = (uint8_t*)heap_caps_malloc(WAV_READER_READ_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA); // glitch free
+    // uint8_t* read_buffer = (uint8_t*)heap_caps_malloc(WAV_READER_READ_SIZE, MALLOC_CAP_INTERNAL); // likely iram CAUSES GLITCHES
+    // uint8_t* read_buffer = (uint8_t*)heap_caps_malloc(WAV_READER_READ_SIZE, MALLOC_CAP_SPIRAM); // AUSES GLITCHES
     if (!read_buffer) {
         ESP_LOGE(TAG, "Failed to allocate read buffer");
         return ESP_FAIL;
@@ -280,7 +282,7 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
             }
         }
         int64_t delta = esp_timer_get_time() - start_time;
-        if (delta > 4000) { // 1000 microseconds = 1 millisecond, adjust as needed
+        if (delta > (300 * 1000)) { // 1000 microseconds = 1 millisecond, adjust as needed
             ESP_LOGW(TAG, "Read operation took longer than expected: %lld us %zu bytes read", delta, bytes_read);
         }
 
@@ -303,7 +305,7 @@ static esp_err_t wav_read(wav_reader_state_t *state) {
         // ok, if we are writing 4k, then we should have a combined speed of about 23ms. If the read time of the bytes
         // is about 4k, we should tot to about 18ms.
         delta = esp_timer_get_time() - start_time;
-        if (delta > 40000) { // 1000 microseconds = 1 millisecond, adjust as needed
+        if (delta > (100 * 1000) ) { // 1000 microseconds = 1 millisecond, adjust as needed
             ESP_LOGW(TAG, "RingBuffer Send operation took longer than expected: %lld us for %zu ", delta, bytes_read);
         }
         // expect to get control when there's still a fair amount of data, check if we're underflowing
@@ -345,7 +347,7 @@ cleanup:
         goto err;
     }
 
-    if (wav_header_read(state) != ESP_OK) {
+    if (wav_reader_header_read(state) != ESP_OK) {
         goto err;
     }
     return ESP_OK;

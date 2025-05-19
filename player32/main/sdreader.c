@@ -270,6 +270,8 @@ esp_err_t test_sd_fread_speed_vfs(const char *filepath)
 // the esp tuning guide specifically states that one should use
 // read instead of fread to avoid some overhead.
 
+#define TARGET_BPS 176400
+
 esp_err_t test_sd_read_speed_vfs(const char *filepath)
 {
     esp_err_t err = ESP_OK;
@@ -279,10 +281,13 @@ esp_err_t test_sd_read_speed_vfs(const char *filepath)
         return ESP_FAIL;
     }
 
-    int target_speed_us = 180000;
-    int read_sz = 32 * 1024;
+    int read_sz = 8 * 1024;
     uint8_t *buf;
     size_t total_read = 0;
+    uint16_t total_start = esp_timer_get_time();
+
+    int target_us_per_buffer = (int) (((float)read_sz / TARGET_BPS) * 1000000.0);
+    ESP_LOGI(TAG, "target BPS: %d target us per buffer: %d buffer size %d",TARGET_BPS, target_us_per_buffer, read_sz);
 
 //    buf = malloc(read_sz);
 // internal means it'll be in dram not flash. DMA is the other option and it's interesting
@@ -309,22 +314,29 @@ esp_err_t test_sd_read_speed_vfs(const char *filepath)
             ESP_LOGI(TAG, "read %d bytes in %lld us",r, delta);
         }
 
-        if (delta > (target_speed_us * 2) ) {
+        if (delta > (target_us_per_buffer * 10) ) {
             ESP_LOGE(TAG, "READ SPIKE: %d bytes in %lld us offset %ud",r,delta, total_read);
             err = ESP_ERR_TIMEOUT;
         }
-        else if (delta > target_speed_us) {
+        else if (delta > target_us_per_buffer * 2) {
             ESP_LOGW(TAG, "READ SPIKE WARNING: %d bytes in %lld us offset %ud",r,delta, total_read);
         }
 
         // add delay to hit read rate more generally
-        int delay_us = target_speed_us - delta; 
+        int delay_us = target_us_per_buffer - delta; 
         if (delay_us > 0) {
             vTaskDelay( pdMS_TO_TICKS(delay_us / 1000) );
         }
         // ESP_LOGI(TAG, "read %d bytes in %lld us",r, delta);
+
         total_read += r;
+
     };
+
+    // total speed
+    uint64_t now = esp_timer_get_time();
+    ESP_LOGI(TAG, "total read: %d total usecs: %f total speed: %f",total_read, (float)now - (float)total_start,
+        (float) total_read / (((float)now - (float)total_start) / 1000000.0));
 
     free(buf);
     close(fd);

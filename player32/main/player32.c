@@ -16,6 +16,7 @@
 #include "freertos/semphr.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 
 #include "esp_vfs_fat.h"
@@ -47,12 +48,117 @@
 
 static const char *TAG = "player32";
 
+/* reminder about prioreitize
+// low is low, so 0 is idle
+// configMAX_PRIORITIES is the highest. 
+*/
+
+// Navigate to FreeRTOS Configuration: The relevant options are typically found under:
+// Component config -> FreeRTOS
+
+// Enable Statistics Gathering: Look for and enable these options:
+
+//     Enable FreeRTOS to collect task stats (This might be named something similar, like Enable FreeRTOS stats registry)
+//     Enable FreeRTOS to collect run time stats (If you want to use vTaskGetRunTimeStats)
+
+// Enable Formatting Functions: To use vTaskList() and get the formatted table output, you specifically need to enable:
+
+//     Enable FreeRTOS to include run time stats formatting functions (This or similarly named options might control both vTaskList and vTaskGetRunTimeStats output formatting).
+
+// Enable FreeRTOS to include task list formatting functions (This specifically enables vTaskList).
+
+
+#define TASK_LIST_BUFFER_SIZE 2048 // Adjust buffer size as needed
+// stack allocated so be careful!
+
+void print_task_list() {
+    char pcWriteBuffer[TASK_LIST_BUFFER_SIZE];
+
+    vTaskList(pcWriteBuffer);
+    printf("Task List:\n");
+    printf("name ******** state *** pri ****stk_hwm ***** taskid *******core\n");
+    printf("%s\n", pcWriteBuffer);
+    printf("*********************************************\n");
+}
+
+void print_task_stats() {
+    char pcWriteBuffer[TASK_LIST_BUFFER_SIZE];
+
+
+    // Generate the run time stats.
+    // The table is written to the buffer, whose data is then printed to the serial port.
+    vTaskGetRunTimeStats(pcWriteBuffer);
+
+    printf("Task         Run Time ticks     percent   \n");
+    printf("%s\n", pcWriteBuffer);
+    printf("*********************************************\n");
+}
+
+void print_memory_info()
+{
+    ESP_LOGI(TAG, "--- Heap Memory Information ---");
+
+    // Information for internal DRAM (most of the main internal heap, is DMA-capable)
+    // MALLOC_CAP_DRAM is a good way to specifically target this primary pool.
+    ESP_LOGI(TAG, "Internal 8-bit addressible DMA capable (DRAM):");
+    heap_caps_print_heap_info(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
+
+    // You can combine capabilities too, e.g., Internal AND 32-bit addressable
+    ESP_LOGI(TAG, "Internal 32-bit Addressable (IRAM):");
+    heap_caps_print_heap_info(MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT);
+
+    // Information for ALL internal memory that's part of the heap.
+    // This includes DRAM + potentially IRAM data heap + potentially RTC FAST heap (if enabled).
+    // Comparing this to DRAM shows if there are other internal pools contributing.
+    ESP_LOGI(TAG, "Total Internal (DRAM + others like IRAM/RTC if in heap):");
+    heap_caps_print_heap_info(MALLOC_CAP_INTERNAL);
+
+    // Information for external SPIRAM (if enabled and initialized)
+    ESP_LOGI(TAG, "External SPIRAM:");
+    heap_caps_print_heap_info(MALLOC_CAP_SPIRAM); // Or MALLOC_CAP_EXTRAM
+
+    // Information for RTC FAST memory (if enabled for dynamic allocation)
+    // Since you said this is false, this should show 0 total size.
+    ESP_LOGI(TAG, "RTC FAST Memory (if enabled as heap):");
+    heap_caps_print_heap_info(MALLOC_CAP_RTCRAM);
+
+    // You can also query capabilities like MALLOC_CAP_DMA explicitly (this appears to always equal CAP_8BIT)
+    // ESP_LOGI(TAG, "DMA Capable Memory (primarily DRAM):");
+    // heap_caps_print_heap_info(MALLOC_CAP_DMA);
+
+    ESP_LOGI(TAG, "-----------------------------");
+}
+
+
+// In your app_main or another initialization function:
+// xTaskCreate(&print_task_list, "TaskListPrint", 4096, NULL, 5, NULL);
 
 void heartbeat_task(void *pvParameters)
 {
     while (1) {
+
+        // print_task_list();
+        //print_task_stats();
+        // print_memory_info();
+
         ESP_LOGI(TAG, "Heartbeat: test is alive: %lld ms", esp_timer_get_time()/1000);
         vTaskDelay(pdMS_TO_TICKS(30000));  // 30 seconds
+    }
+}
+
+void sd_read_speed_task(void *pvParameters) {
+
+    const char music_filename[] = "/sdcard/test-short.wav";
+
+    for (int i=0; i<1000; i++) {
+        if ( test_sd_read_speed_vfs(music_filename) != ESP_OK ) {
+            ESP_LOGE(TAG, " READ SPEED FAILED pass %d ",i);
+        }
+        else {
+            ESP_LOGI(TAG, " READ SPEED SUCCESS: pass %d",i);
+        }
+
+        // dump_tasks();
     }
 }
 
@@ -158,6 +264,7 @@ void app_main(void)
         } /*!< set I2S interface configuration */
     };
 
+    // Configure the ES8388 chip - INIT START and an initial set volume yeah?
     esp_err_t ret = es8388_init(&cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "ES8388 init failed: %d",(int) ret);
@@ -168,21 +275,22 @@ void app_main(void)
         ESP_LOGE(TAG, "ES8388 start failed: %d",(int) ret);
     }
 
-    // 
+    // going to need to sort this out better at some point....
+    // TODO: there appears to be a gain stage problem. I've got distortion in loud parts, but it's not the
+    // master that's getting me.
     ret = es8388_set_volume(80);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "ES8388 set volume failed: %d",(int) ret);
     }
 
     // start a heartbeat task so I can tell everything's OK
-    xTaskCreate(heartbeat_task, "heartbeat_task", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreatePinnedToCore(heartbeat_task, "heartbeat", 4096 /*stksz*/, NULL /*param*/, tskIDLE_PRIORITY + 1, 
+        NULL /*tskreturn*/, 1 /*core*/);
 
     // ret = init_i2s_std();
     // if (ret != ESP_OK) {
     //     ESP_LOGW(TAG, "I2S generatorES8388 init failed: %d",(int) ret);
     // }
-
-
 
 
 #if 1
@@ -195,9 +303,7 @@ void app_main(void)
     else {
         ESP_LOGI(TAG, "no filename and filetype detected");
     }
-#endif
-
-#if 0
+#else
     // find one
     char *music_filename;
     enum FILETYPE_ENUM music_filetype;
@@ -209,10 +315,13 @@ void app_main(void)
     }
 #endif
 
-#if 0
-    char music_filename[] = "0:test-orig.mp3";
-#endif
-
+//
+// PLAY THE FILE
+// 1. alloc and get the shared state
+// 2. Start the wav reader to get data into the ringbuf
+// 3. start the es8388 player which will read from the ringbuf
+//
+#if 1
     // start the task that reads hte wav file.
     // I generally hate calloc but it's OK here.
     wav_reader_state_t *wav_state = calloc(1, sizeof(wav_reader_state_t));
@@ -227,33 +336,43 @@ void app_main(void)
 
     // wav reader puts data in a ringbuf.
     // TODO: use something like xTaskNotifyGive to notify this main task when it's exiting.
-    xTaskCreate(wav_reader_task, "wav_reader_task", 4096, (void *) wav_state, 7, NULL);
+    // note we want this priority higher than the player
+
+    // Read from the file
+#if 1
+    xTaskCreatePinnedToCore(wav_reader_task, "wav_reader", 1024 * 6 /*stksz*/,(void *) wav_state, configMAX_PRIORITIES - 2, 
+        NULL /*tskreturn*/, 1 /*core*/);
+#else
+    // Generate a tone, the same way - TEST CODE, but not yet debugged! TODO :-) 
+    xTaskCreatePinnedToCore(tone_reader_task, "tone_reader", 1024 * 6 /*stksz*/,(void *) wav_state, configMAX_PRIORITIES - 2, 
+        NULL /*tskreturn*/, 1 /*core*/);
+#endif
 
     // TODO: since we have information about the file, we should either set the ES8388 correctly,
     // or validate that it is correct
 
     // using the wav ringbuf, play the contents to the DAC
     // lower priority than the file reader
-    xTaskCreate(es8388_player_task, "es8388_player_task", 4096, (void *) wav_state, 8, NULL);
+    xTaskCreatePinnedToCore(es8388_player_task, "es8388_player", 1024 * 6, (void *) wav_state, configMAX_PRIORITIES - 4, 
+    NULL/*tskreturn*/, 1 /*core*/);
+#endif
 
+#if 0
     // start an audio play task generating a tone so I can see if the init is OK
     // This is a breadcrumb. Remove other uses of the 8388 if you want to see if
     // this is still working.
-    // xTaskCreate(generator_task, "generator_task", 4096, NULL, 7, NULL);
-
+    xTaskCreate(generator_task, "generator_task", 4096, NULL, 7, NULL);
+#endif
 
 #if 0
-    for (int i=0; i<100; i++) {
-        if ( test_sd_read_speed_vfs(music_filename) != ESP_OK ) {
-            ESP_LOGE(TAG, " READ SPEED FAILED pass %d ",i);
-        }
-        else {
-            ESP_LOGI(TAG, " READ SPEED SUCCESS: pass %d",i);
-        }
-
-        // dump_tasks();
-    }
+/* THis tests read speed. Do we ahve spikes?
+*/
+    // using the wav ringbuf, play the contents to the DAC
+    // lower priority than the file reader
+    xTaskCreatePinnedToCore(sd_read_speed_task, "sd_read_speed", 1024 * 6, 0 /*param*/, configMAX_PRIORITIES - 3, 
+    NULL/*tskreturn*/, 1 /*core*/);
 #endif
+
 
     // UGLY TODO! Need to have something other than a hard block
     vTaskDelay(portMAX_DELAY);
