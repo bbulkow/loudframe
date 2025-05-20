@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"dirent.h": "c",
+			"nvs_flash.h": "c",
+			"sdmmc_host.h": "c",
+			"es8388.h": "c",
+			"task.h": "c",
+			"sdmmc_cmd.h": "c",
+			"ringbuf.h": "c",
+			"freertos.h": "c"
+		}
+	}
+}
