@@ -197,6 +197,35 @@ void es8388_player_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+// loop through setting the volume slowly
+void volume_task(void *pvParameters)
+{
+    static const int top = 20;
+    static const int bottom = 0;
+    static const int step = 2;
+    static const int delay_ms = 10000;
+    while (1) {
+
+        ESP_LOGI(TAG, "Volume: low and increasing (1s)");
+
+        for (int i=bottom;i<top;i += step) {
+            ESP_LOGI(TAG, "volume: %d",i);
+            es8388_set_volume(i);
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        }
+
+        ESP_LOGI(TAG, "Volume: high and decreasing (1s)");
+
+        for (int i=top;i>bottom; i -= step) {
+            ESP_LOGI(TAG, "volume: %d",i);
+            es8388_set_volume(i);
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        }
+       
+    }
+    vTaskDelete(NULL);
+}
+
 void dump_tasks(void) {
 
     const size_t line_size = 64;
@@ -354,7 +383,7 @@ void app_main(void)
     // using the wav ringbuf, play the contents to the DAC
     // lower priority than the file reader
     xTaskCreatePinnedToCore(es8388_player_task, "es8388_player", 1024 * 6, (void *) wav_state, configMAX_PRIORITIES - 4, 
-    NULL/*tskreturn*/, 1 /*core*/);
+                                NULL/*tskreturn*/, 1 /*core*/);
 #endif
 
 #if 0
@@ -370,9 +399,15 @@ void app_main(void)
     // using the wav ringbuf, play the contents to the DAC
     // lower priority than the file reader
     xTaskCreatePinnedToCore(sd_read_speed_task, "sd_read_speed", 1024 * 6, 0 /*param*/, configMAX_PRIORITIES - 3, 
-    NULL/*tskreturn*/, 1 /*core*/);
+                                NULL/*tskreturn*/, 1 /*core*/);
 #endif
 
+#if 1
+    // using the wav ringbuf, play the contents to the DAC
+    // lower priority than the file reader
+    xTaskCreatePinnedToCore(volume_task, "volume_task", 1024 * 4, NULL, configMAX_PRIORITIES - 6, 
+                                NULL/*tskreturn*/, 1 /*core*/);
+#endif
 
     // UGLY TODO! Need to have something other than a hard block
     vTaskDelay(portMAX_DELAY);

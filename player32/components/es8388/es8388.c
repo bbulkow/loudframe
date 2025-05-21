@@ -96,18 +96,6 @@ i2s_chan_handle_t g_i2s_tx_handle = NULL;
         return b;\
     }
 
-// audio_hal_func_t AUDIO_CODEC_ES8388_DEFAULT_HANDLE = {
-//     .audio_codec_initialize = es8388_init,
-//     .audio_codec_deinitialize = es8388_deinit,
-//     .audio_codec_ctrl = es8388_ctrl_state,
-//     .audio_codec_config_iface = es8388_config_i2s,
-//     .audio_codec_set_mute = es8388_set_voice_mute,
-//     .audio_codec_set_volume = es8388_set_voice_volume,
-//     .audio_codec_get_volume = es8388_get_voice_volume,
-//     .audio_codec_enable_pa = es8388_pa_power,
-//     .audio_hal_lock = NULL,
-//     .handle = NULL,
-// };
 
 static esp_err_t es_write_reg(uint8_t reg_add, uint8_t data)
 {
@@ -137,17 +125,6 @@ static esp_err_t es_i2c_init()
                                        0 /*rx buf*/, 0 /* tx buf */, 0 /* intr_alloc_flags */) 
                    );
 
-    // int res;
-    // i2c_config_t es_i2c_cfg = {
-    //     .mode = I2C_MODE_MASTER,
-    //     .sda_pullup_en = GPIO_PULLUP_ENABLE,
-    //     .scl_pullup_en = GPIO_PULLUP_ENABLE,
-    //     .master.clk_speed = 100000
-    // };
-    // res = get_i2c_pins(I2C_NUM_0, &es_i2c_cfg);
-    // ES_ASSERT(res, "getting i2c pins error", -1);
-    // i2c_handle = i2c_bus_create(I2C_NUM_0, &es_i2c_cfg);
-    // return res;
 
     return(ESP_OK);
 }
@@ -181,6 +158,9 @@ void es8388_read_all()
 static int es8388_set_adc_dac_volume(int mode, int volume, int dot)
 {
     esp_err_t res = ESP_OK;
+
+    ESP_LOGI(TAG, "es8388_set_adc_dac_volume: mode:%d, volume:%d, dot:%d", mode, volume, dot);
+
     if ( volume < -96 || volume > 0 ) {
         ESP_LOGW(TAG, "Warning: volume < -96! or > 0!\n");
         if (volume < -96)
@@ -459,6 +439,9 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
     res |= es_write_reg( ES8388_DACCONTROL21, 0x80); // set internal ADC and DAC use the same LRCK clock, ADC LRCK as internal LRCK
     res |= es_write_reg( ES8388_DACCONTROL23, 0x00); // vroi=0
 
+    // analog output volumes (LOUT1VOL, ROUT1VOL, LOUT2VOL, ROUT2VOL)
+//    res |= es_write_reg( ES8388_DACCONTROL24, 0x1E); // Set L1 R1 L2 R2 volume. 0x00: -30dB, 0x1E: 0dB, 0x21: 3dB
+//    res |= es_write_reg( ES8388_DACCONTROL25, 0x1E);
     res |= es_write_reg( ES8388_DACCONTROL24, 0x1E); // Set L1 R1 L2 R2 volume. 0x00: -30dB, 0x1E: 0dB, 0x21: 3dB
     res |= es_write_reg( ES8388_DACCONTROL25, 0x1E);
     res |= es_write_reg( ES8388_DACCONTROL26, 0);
@@ -526,12 +509,17 @@ esp_err_t es8388_config_fmt(es_module_t mode, es_i2s_fmt_t fmt)
 }
 
 /**
- * @brief Set voice volume
+ * @brief Set volume
  *
  * @note Register values. 0xC0: -96 dB, 0x64: -50 dB, 0x00: 0 dB
  * @note Accuracy of gain is 0.5 dB
+ * 
+ * There are two stages to volume: the DAC output volume (the actual digital to analog), and the
+ * Analog component. LDACVOL and RDACVOL are the first, then LOUT1VOL++ is the analog stage.
+ * According to what I read, it seems preferable to set the DAC volume to a fixed thing, and then change the
+ * Analog stage volumes.
  *
- * @param volume: voice volume (0~100)
+ * @param volume: volume (0~100)
  *
  * @return
  *     - ESP_OK
@@ -542,16 +530,25 @@ esp_err_t es8388_config_fmt(es_module_t mode, es_i2s_fmt_t fmt)
 // the best way to calculate a log on an ESP32 is through a lookup table.
 // This gives low = 0 31, and the high end the same way, according to
 // a log table.
+// I'M NOT SURE HOW WELL THIS REALLY WORKS. The original driver uses a simple linear,
+// let's go back to that.
 
- static const uint8_t volume_table[100] = {
-    31,30,30,29,29,28,28,27,27,26,26,25,25,24,24,23,23,22,22,21,
-    21,20,20,19,19,18,18,17,17,16,16,15,15,14,14,13,13,12,12,11,
-    11,10,10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 2,
-     2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-     1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-   };
+//  static const uint8_t volume_table[100] = {
+//     31,30,30,29,29,28,28,27,27,26,26,25,25,24,24,23,23,22,22,21,
+//     21,20,20,19,19,18,18,17,17,16,16,15,15,14,14,13,13,12,12,11,
+//     11,10,10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 2,
+//      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+//      1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+//    };
    
 static int g_user_volume = -1;
+
+// TODO:
+// there are two outputs of my card (and most ES8388) which are tied to Headphones and Speakers,
+// that is output 1 and output 2 from an ES8388 perspective. It would be far more useful to
+// set the volumes independatly, since they really are independant outputs, and also to 
+// consider the "scale" (especially scale before distortion) of each one indepntalyt
+// because the output electronics might be different.
 
 esp_err_t es8388_set_volume(int volume)
 {
@@ -565,12 +562,25 @@ esp_err_t es8388_set_volume(int volume)
 //            audio_codec_cal_dac_volume(dac_vol_handle));
 //    return res;
 
-    esp_err_t res = ESP_OK; 
-    if (volume < 0) volume = 0; else if (volume > 100) volume = 100;
-    uint8_t vol_value = volume_table[volume];
+    // esp_err_t res = ESP_OK; 
+    // if (volume < 0) volume = 0; else if (volume > 100) volume = 100;
+    // uint8_t vol_value = volume_table[volume];
 
-    res = es_write_reg( ES8388_LDACVOL, vol_value); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
-    res |= es_write_reg( ES8388_RDACVOL, vol_value); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
+    // res = es_write_reg( ES8388_LDACVOL, vol_value); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
+    // res |= es_write_reg( ES8388_RDACVOL, vol_value); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
+
+    esp_err_t res = ESP_OK; 
+    if (volume < 0) volume = 0; else if (volume > 100) volume = 100; 
+    // volume = volume_table[volume]; 
+    volume = volume / 3; // just happens to map 0-100 to 0-33
+    res = es_write_reg(ES8388_LDACVOL, 30); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
+    res |= es_write_reg(ES8388_RDACVOL, 30); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
+    res |= es_write_reg(ES8388_DACCONTROL24, volume);  // LOUT1 volume 0..33 dB
+    res |= es_write_reg(ES8388_DACCONTROL25, volume);  // ROUT1 volume 0..33 dB
+    res |= es_write_reg(ES8388_DACCONTROL26, volume);  // LOUT2 volume 0..33 dB
+    res |= es_write_reg(ES8388_DACCONTROL27, volume);  // ROUT2 volume 0..33 dB
+    //ESP_LOGI(TAG, "Set volume:%.2d", volume);
+    return res;
 
     g_user_volume = volume;
 
@@ -582,13 +592,14 @@ esp_err_t es8388_set_volume(int volume)
     // res |= es_write_reg( ES8388_LOUT2VOL, vol_value);  // LOUT2 volume 0..33 dB - power amp
     // res |= es_write_reg( ES8388_ROUT2VOL, vol_value);  // ROUT2 volume 0..33 dB - power amp
 
+    // can be noisy in here
+#if 0
     if (res == ESP_OK) {
-        ESP_LOGI(TAG, "Success: Set volume:%.2d dB:%.1f", (int)volume, 
-                -1.0 /* dbd */);
+        ESP_LOGI(TAG, "Success: Set volume:%.2d", volume);
     } else {
-        ESP_LOGE(TAG, "FAILURE: Set volume:%.2d dB:%.1f", (int)volume, 
-                -1.0 /* dbd */);        
+        ESP_LOGE(TAG, "FAILURE: Did not set volume:%.2d", volume);        
     }
+#endif
     return res;
 
 }
