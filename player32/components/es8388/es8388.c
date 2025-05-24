@@ -49,7 +49,7 @@ i2s_chan_handle_t g_i2s_tx_handle = NULL;
 #define ES8388_I2C_NUM  (I2C_NUM_0)
 #define ES8388_I2C_SDA (GPIO_NUM_33)
 #define ES8388_I2C_SCL (GPIO_NUM_32)
-#define ES8388_I2C_FREQ_HZ (100000) // likely 400000 works too
+#define ES8388_I2C_FREQ_HZ (200000) // likely 400000 works too
 
 #define ES8388_CODEC_I2S_PORT           (I2S_NUM_0)
 #define ES8388_CODEC_BITS_PER_SAMPLE    (I2S_DATA_BIT_WIDTH_16BIT)
@@ -118,7 +118,7 @@ static esp_err_t es_i2c_init()
         .scl_io_num = ES8388_I2C_SCL,
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = ES8388_I2C_FREQ_HZ,
+        .master.clk_speed = ES8388_I2C_FREQ_HZ
     };
     ESP_ERROR_CHECK(i2c_param_config(ES8388_I2C_NUM, &conf));
     ESP_ERROR_CHECK(i2c_driver_install(ES8388_I2C_NUM, conf.mode,
@@ -131,7 +131,7 @@ static esp_err_t es_i2c_init()
 
 void es8388_read_all()
 {
-    for (unsigned int i = 0; i < 50; i++) {
+    for (unsigned int i = 0; i < ES8388_DACCONTROL33; i++) {
         uint8_t reg = 0;
         es_read_reg(i, &reg);
         ESP_LOGI(TAG, "%x: %x", i, reg);
@@ -161,6 +161,7 @@ static int es8388_set_adc_dac_volume(int mode, int volume, int dot)
 
     ESP_LOGI(TAG, "es8388_set_adc_dac_volume: mode:%d, volume:%d, dot:%d", mode, volume, dot);
 
+#if 0
     if ( volume < -96 || volume > 0 ) {
         ESP_LOGW(TAG, "Warning: volume < -96! or > 0!\n");
         if (volume < -96)
@@ -178,6 +179,7 @@ static int es8388_set_adc_dac_volume(int mode, int volume, int dot)
         res |= es_write_reg(ES8388_LDACVOL, volume);
         res |= es_write_reg(ES8388_RDACVOL, volume);
     }
+#endif
     return res;
 }
 
@@ -228,6 +230,9 @@ esp_err_t es8388_start(es_module_t mode)
         res |= es8388_set_mute(false);
         ESP_LOGD(TAG, "es8388_start default is mode:%d", mode);
     }
+
+    // ESP_LOGW(TAG, "REGISTERS AFTER START");
+    // es8388_read_all();
 
     return res;
 }
@@ -411,7 +416,7 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
 {
     int res = 0;
 
-    headphone_detect_init();
+    // headphone_detect_init();
 
     res = es_i2c_init(); // ESP32 in master mode
 
@@ -452,8 +457,11 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
     /* adc */
     res |= es_write_reg( ES8388_ADCPOWER, 0xFF);
     res |= es_write_reg( ES8388_ADCCONTROL1, 0xbb); // MIC Left and Right channel PGA gain
-    res |= es_write_reg( ES8388_ADCCONTROL2, cfg->adc_input);  //0x00 LINSEL & RINSEL, LIN1/RIN1 as ADC Input; DSSEL,use one DS Reg11; DSR, LINPUT1-RINPUT1
-    res |= es_write_reg( ES8388_ADCCONTROL3, 0x20); // BB - consider not setting flash to low power?
+
+    res |= es_write_reg( ES8388_ADCCONTROL2, 0x50);  // BB OVERRIDE
+
+//    res |= es_write_reg( ES8388_ADCCONTROL2, cfg->adc_input);  //0x00 LINSEL & RINSEL, LIN1/RIN1 as ADC Input; DSSEL,use one DS Reg11; DSR, LINPUT1-RINPUT1
+    res |= es_write_reg( ES8388_ADCCONTROL3, 0x02); // BB - consider not setting flash to low power?
     res |= es_write_reg( ES8388_ADCCONTROL4, 0x0c); // 16 Bits length and I2S serial audio data format
     res |= es_write_reg( ES8388_ADCCONTROL5, 0x02);  //ADCFsMode,singel SPEED,RATIO=256
     //ALC for Microphone
@@ -469,10 +477,15 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
         .intr_type = GPIO_INTR_DISABLE
     };
     gpio_config(&io_conf);
-    /* enable es8388 PA */
+
+    /* enable es8388 PA - this is for the speaker outputs */
     es8388_pa_power(true);
 
     es_i2s_init();
+
+    // ESP_LOGW(TAG, "REGISTERS AFTER INIT");
+    // es8388_read_all();
+
 
     // This call into ADF probably needs to be replaced by some other default volume call
     // codec_dac_volume_config_t vol_cfg = ES8388_DAC_VOL_CFG_DEFAULT();
@@ -573,14 +586,18 @@ esp_err_t es8388_set_volume(int volume)
     if (volume < 0) volume = 0; else if (volume > 100) volume = 100; 
     // volume = volume_table[volume]; 
     volume = volume / 3; // just happens to map 0-100 to 0-33
-    res = es_write_reg(ES8388_LDACVOL, 30); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
-    res |= es_write_reg(ES8388_RDACVOL, 30); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
+    res = es_write_reg(ES8388_LDACVOL, 0); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
+    res |= es_write_reg(ES8388_RDACVOL, 0); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
     res |= es_write_reg(ES8388_DACCONTROL24, volume);  // LOUT1 volume 0..33 dB
     res |= es_write_reg(ES8388_DACCONTROL25, volume);  // ROUT1 volume 0..33 dB
     res |= es_write_reg(ES8388_DACCONTROL26, volume);  // LOUT2 volume 0..33 dB
     res |= es_write_reg(ES8388_DACCONTROL27, volume);  // ROUT2 volume 0..33 dB
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "FAILURE: Did not set volume:%.2d", volume);
+    }
+    
     //ESP_LOGI(TAG, "Set volume:%.2d", volume);
-    return res;
 
     g_user_volume = volume;
 
@@ -600,6 +617,10 @@ esp_err_t es8388_set_volume(int volume)
         ESP_LOGE(TAG, "FAILURE: Did not set volume:%.2d", volume);        
     }
 #endif
+
+    // ESP_LOGW(TAG, "REGISTERS AFTER SETVOL");
+    // es8388_read_all();
+
     return res;
 
 }
@@ -717,6 +738,9 @@ esp_err_t es8388_config_adc_input(es_adc_input_t input)
     res = es_read_reg(ES8388_ADCCONTROL2, &reg);
     reg = reg & 0x0f;
     res |= es_write_reg( ES8388_ADCCONTROL2, reg | input);
+
+    ESP_LOGI(TAG, "CONFIG ADC INPUT: %.2d", (int) input);
+
     return res;
 }
 
@@ -788,6 +812,7 @@ esp_err_t es8388_config_i2s(es_codec_mode_t mode, es_codec_i2s_iface_t *iface)
 esp_err_t es8388_pa_power(bool enable)
 {
     esp_err_t res = ESP_OK;
+    ESP_LOGE(TAG, "ENABLE PA POWER: %d",(int) enable);
     if (enable) {
         res = gpio_set_level(ES8388_PA_ENABLE_GPIO, 1);
     } else {
