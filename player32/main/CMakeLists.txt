@@ -7,4 +7,4 @@ idf_component_register(
         "sdreader.c" 
         "generator.c" 
     INCLUDE_DIRS "."
-    REQUIRES sdmmc esp_timer fatfs nvs_flash esp_wifi es8388 driver esp_driver_i2s esp_ringbuf)
+    REQUIRES sdmmc esp_timer fatfs nvs_flash esp_wifi es8388 b_ringbuf driver esp_driver_i2s esp_ringbuf)

@@ -6,6 +6,8 @@
 #include "freertos/ringbuf.h"
 #include "esp_log.h"
 
+#include "b_ringbuf.h"
+
 enum FILETYPE_ENUM {
     FILETYPE_UNKNOWN,
     FILETYPE_MP3,
@@ -17,7 +19,7 @@ enum FILETYPE_ENUM {
 // size to make the ringbuf
 #define WAV_READER_RINGBUF_SIZE (64 * 1024) // Example size, adjust as needed
 // size to transmit to es8388 to ensure buffer size
-#define ES8388_PLAYER_WRITE_SIZE (4 * 1024)
+#define ES8388_PLAYER_WRITE_SIZE (8 * 1024)
 
 void print_task_list();
 void print_task_stats();
@@ -29,9 +31,8 @@ void print_task_stats();
 typedef struct {
     char *filepath;
     int fd;
-    RingbufHandle_t ringbuf;
-    uint8_t *ringbuf_data_storage;
-    StaticRingbuffer_t *ringbuf_struct_storage;
+
+    b_ringbuf_handle_t ringbuf;
 
     bool done;
     

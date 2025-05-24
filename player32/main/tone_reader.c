@@ -21,12 +21,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "freertos/ringbuf.h"
 #include "esp_heap_caps.h"
 
 #include "esp_timer.h"
 #include "esp_log.h"
 
+#include "b_ringbuf.h"
 #include "player32.h"
 
 #define TAG "wavReader"
@@ -68,33 +68,12 @@ static esp_err_t tone_reader_init_ringbuf( wav_reader_state_t *state ) {
 
     ESP_LOGI(TAG, "initalizing ringbuf");
 
-    state->ringbuf_data_storage = (uint8_t*)heap_caps_malloc(WAV_READER_RINGBUF_SIZE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    if (!state->ringbuf_data_storage) {
-        ESP_LOGE(TAG, "Failed to allocate ring buffer data storage");
-        return ESP_FAIL;
-    }
-
-    // NB: 8 bit is required, as there are Testandset, in the structure part. 
-    // If you just do internal you seem to get something that doesn't work.
-    state->ringbuf_struct_storage = (StaticRingbuffer_t *) heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
-    if (!state->ringbuf_struct_storage) {
-        ESP_LOGE(TAG, "Failed to allocate ring buffer struct storage");
-        free(state->ringbuf_data_storage);
-        state->ringbuf_data_storage = 0;
-        return ESP_FAIL;
-    }
-
-    RingbufHandle_t rb = xRingbufferCreateStatic(WAV_READER_RINGBUF_SIZE, RINGBUF_TYPE_BYTEBUF, state->ringbuf_data_storage, state->ringbuf_struct_storage);
-    if (!rb) {
+    // going to try the ringbuf in spiram, since we're copying
+    state->ringbuf = brb_create(WAV_READER_RINGBUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (state->ringbuf == NULL) {
         ESP_LOGE(TAG, "Failed to create ring buffer");
-        free(state->ringbuf_data_storage); // Free the allocated storage on failure
-        state->ringbuf_data_storage = 0;
-        free(state->ringbuf_struct_storage); // Free the allocated storage on failure
-        state->ringbuf_struct_storage = 0;
         return ESP_FAIL;
-    }
-
-    state->ringbuf = rb;
+    };
 
     return ESP_OK;
 }
@@ -132,7 +111,7 @@ static esp_err_t tone_reader_generate(float frequency, float amplitude, wav_read
 
     // 2) Each frame: 2 samples (left + right), int16_t each
     int total_stereo_samples = period_samples * 2;
-    int tone_len = total_stereo_samples * sizeof(int16_t);
+    size_t tone_len = total_stereo_samples * sizeof(int16_t);
 
     // 3) Allocate a buffer for one full cycle (stereo interleaved)
     int16_t *tone_buf = (int16_t *)malloc(tone_len);
@@ -169,8 +148,7 @@ static esp_err_t tone_reader_generate(float frequency, float amplitude, wav_read
 
         uint64_t start_time = esp_timer_get_time();
 
-        BaseType_t result = xRingbufferSend(state->ringbuf, tone_buf, tone_len, portMAX_DELAY);
-        if (result != pdTRUE) {
+        if (ESP_OK != brb_write(state->ringbuf, (uint8_t *) tone_buf, &tone_len, portMAX_DELAY)) {
             ESP_LOGE(TAG, "Failed to send data to ring buffer - probable timeout? - continuing");
             // Handle ring buffer full condition, potentially by waiting or retrying
         }
@@ -207,8 +185,6 @@ static esp_err_t tone_reader_generate(float frequency, float amplitude, wav_read
 
     int fd = -1;
     state->ringbuf = NULL;
-    state->ringbuf_data_storage = NULL;
-    state->ringbuf_struct_storage = NULL;
 
     if (tone_reader_init_ringbuf(state) != ESP_OK) {
         goto err;
@@ -230,9 +206,7 @@ static esp_err_t tone_reader_generate(float frequency, float amplitude, wav_read
 err:
     ESP_LOGE(TAG, "reader_init failed ");
     if (state->fd >= 0)    close(fd);
-    vRingbufferDelete(state->ringbuf);
-    free(state->ringbuf_data_storage);
-    free(state->ringbuf_struct_storage);
+    brb_destroy(state->ringbuf);
     return ESP_FAIL;
 }
 
@@ -241,9 +215,7 @@ void tone_reader_deinit(wav_reader_state_t *state ) {
     ESP_LOGE(TAG, "deinit ");
 
     if (state->fd >= 0)    close(state->fd);
-    vRingbufferDelete(state->ringbuf);
-    free(state->ringbuf_data_storage);
-    free(state->ringbuf_struct_storage);
+    brb_destroy(state->ringbuf);
     if (state != NULL)    memset(state,0xff, sizeof(wav_reader_state_t));
     free(state);
     return;

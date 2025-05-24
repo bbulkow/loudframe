@@ -25,8 +25,6 @@
 #include "driver/sdmmc_defs.h"
 
 #include "diskio_impl.h"
-//#include "driver/sdspi_host.h"
-//#include "driver/spi_common.h"
 
 #include "driver/gpio.h"
 

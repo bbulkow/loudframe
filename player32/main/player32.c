@@ -172,7 +172,7 @@ void generator_task(void *pvParameters)
 
     esp_task_wdt_add(NULL);
 
-    play_sine_wave(440.0f, 0.75f);
+    play_sine_wave(( 440.0f / 2), 0.75f);
 
     vTaskDelete(NULL);
 }
@@ -202,8 +202,8 @@ void volume_task(void *pvParameters)
 {
     static const int top = 20;
     static const int bottom = 0;
-    static const int step = 2;
-    static const int delay_ms = 10000;
+    static const int step = 1;
+    static const int delay_ms = 300;
     while (1) {
 
         ESP_LOGI(TAG, "Volume: low and increasing (1s)");
@@ -359,9 +359,15 @@ void app_main(void)
     }
     wav_state->filepath = &music_filename[0];
 
-     if (ESP_OK != wav_reader_init(wav_state)) {
+    ESP_LOGI(TAG, "new wav state 1: done is %d", (int) wav_state->done);
+
+    if (ESP_OK != wav_reader_init(wav_state)) {
         ESP_LOGE(TAG, "Could not initialize wav reader ");
-     }
+        return;
+    }
+
+    ESP_LOGI(TAG, "new wav state 2: done is %d", (int) wav_state->done);
+
 
     // wav reader puts data in a ringbuf.
     // TODO: use something like xTaskNotifyGive to notify this main task when it's exiting.
@@ -369,7 +375,7 @@ void app_main(void)
 
     // Read from the file
 #if 1
-    xTaskCreatePinnedToCore(wav_reader_task, "wav_reader", 1024 * 6 /*stksz*/,(void *) wav_state, configMAX_PRIORITIES - 2, 
+    xTaskCreatePinnedToCore(wav_reader_task, "wav_reader", 1024 * 6 /*stksz*/,(void *) wav_state, configMAX_PRIORITIES - 3, 
         NULL /*tskreturn*/, 1 /*core*/);
 #else
     // Generate a tone, the same way - TEST CODE, but not yet debugged! TODO :-) 
@@ -382,7 +388,7 @@ void app_main(void)
 
     // using the wav ringbuf, play the contents to the DAC
     // lower priority than the file reader
-    xTaskCreatePinnedToCore(es8388_player_task, "es8388_player", 1024 * 6, (void *) wav_state, configMAX_PRIORITIES - 4, 
+    xTaskCreatePinnedToCore(es8388_player_task, "es8388_player", 1024 * 6, (void *) wav_state, configMAX_PRIORITIES - 2, 
                                 NULL/*tskreturn*/, 1 /*core*/);
 #endif
 
