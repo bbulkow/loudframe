@@ -40,7 +40,6 @@
 static const char *TAG = "ES8388_DRIVER";
 
 
-
 // static i2c_bus_handle_t i2c_handle; - new interface uses the i2c_port
 i2s_chan_handle_t g_i2s_tx_handle = NULL;
 // i2s_chan_handle_t g_i2s_rx_handle = NULL;
@@ -49,11 +48,12 @@ i2s_chan_handle_t g_i2s_tx_handle = NULL;
 #define ES8388_I2C_NUM  (I2C_NUM_0)
 #define ES8388_I2C_SDA (GPIO_NUM_33)
 #define ES8388_I2C_SCL (GPIO_NUM_32)
-#define ES8388_I2C_FREQ_HZ (100000) // likely 400000 works too
+#define ES8388_I2C_FREQ_HZ (200000) // likely 400000 works too
 
 #define ES8388_CODEC_I2S_PORT           (I2S_NUM_0)
 #define ES8388_CODEC_BITS_PER_SAMPLE    (I2S_DATA_BIT_WIDTH_16BIT)
-#define ES8388_CODEC_SAMPLE_RATE        (48000)
+//#define ES8388_CODEC_SAMPLE_RATE        (48000)
+#define ES8388_CODEC_SAMPLE_RATE        (44100)
 #define ES8388_RECORD_HARDWARE_AEC      (false)
 #define ES8388_CODEC_CHANNEL_FMT        (I2S_CHANNEL_FMT_STEREO)
 
@@ -129,7 +129,7 @@ static esp_err_t es_i2c_init()
     return(ESP_OK);
 }
 
-void es8388_read_all()
+void es8388_dump_all()
 {
     for (unsigned int i = 0; i < 50; i++) {
         uint8_t reg = 0;
@@ -137,6 +137,8 @@ void es8388_read_all()
         ESP_LOGI(TAG, "%x: %x", i, reg);
     }
 }
+
+
 
 // does not seem used
 // esp_err_t es8388_write_reg(uint8_t reg_add, uint8_t data)
@@ -229,6 +231,9 @@ esp_err_t es8388_start(es_module_t mode)
         ESP_LOGD(TAG, "es8388_start default is mode:%d", mode);
     }
 
+    // ESP_LOGI(TAG, "ES8388 START COMPLETE.");
+    // es8388_dump_all();
+
     return res;
 }
 
@@ -271,25 +276,6 @@ esp_err_t es8388_stop(es_module_t mode)
     return res;
 }
 
-
-/**
- * @brief Config I2s clock in MSATER mode
- *
- * @param cfg.sclkDiv:      generate SCLK by dividing MCLK in MSATER mode
- * @param cfg.lclkDiv:      generate LCLK by dividing MCLK in MSATER mode
- *
- * @return
- *     - (-1)  Error
- *     - (0)   Success
- */
-esp_err_t es8388_i2s_config_clock(es_i2s_clock_t cfg)
-{
-    esp_err_t res = ESP_OK;
-    res |= es_write_reg( ES8388_MASTERMODE, cfg.sclk_div);
-    res |= es_write_reg( ES8388_ADCCONTROL5, cfg.lclk_div);  //ADCFsMode,singel SPEED,RATIO=256
-    res |= es_write_reg( ES8388_DACCONTROL2, cfg.lclk_div);  //ADCFsMode,singel SPEED,RATIO=256
-    return res;
-}
 
 
 /**
@@ -339,7 +325,7 @@ static esp_err_t es_i2s_init(void) {
                 // Default values below are typically correct for standard I2S (Philips)
             .ws_width = 0,         // Auto = slot_bit_width
             .ws_pol = false,       // WS low for left channel (standard I2S)
-            .bit_shift = false,    // Data starts one clock after WS edge (standard I2S)
+            .bit_shift = true,    // Data starts with the WS edge (standard I2S)
             .msb_right = false   // // Data is MSB justified, not right justified (standard I2S)
         },
         // --- End of revised slot_cfg section ---
@@ -362,11 +348,6 @@ static esp_err_t es_i2s_init(void) {
     std_cfg.clk_cfg.mclk_multiple = ES8388_I2S_MCLK_MULTIPLE;
     std_cfg.clk_cfg.clk_src = I2S_CLK_SRC_DEFAULT; // Or I2S_CLK_SRC_APLL for potentially better quality
 
-    // Adjust slot config (Though default Philips is likely correct)
-    // Make sure data bit width and slot bit width match your needs
-    std_cfg.slot_cfg.data_bit_width = ES8388_CODEC_BITS_PER_SAMPLE;
-    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO; // Auto = same as data bit width
-    // std_cfg.slot_cfg.ws_width = I2S_BITS_PER_SAMPLE; // Usually same as bits per sample for standard I2S
 
     ESP_LOGI(TAG, "Initializing standard mode for TX channel...");
     // Initialize TX channel in standard mode
@@ -385,6 +366,8 @@ static esp_err_t es_i2s_init(void) {
     ESP_RETURN_ON_ERROR(i2s_channel_enable(g_i2s_tx_handle), TAG, "Failed to enable TX channel");
     // ESP_RETURN_ON_ERROR(i2s_channel_enable(g_i2s_rx_handle), TAG, "Failed to enable RX channel");
 
+//    ESP_LOGI(TAG, "ES8388 INIT COMPLETE.");
+//    es8388_dump_all();
 
     ESP_LOGI(TAG, "I2S initialization complete.");
     return ESP_OK;
@@ -413,6 +396,8 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
 
     headphone_detect_init();
 
+    ESP_LOGI(TAG, "es8388_init: cfg->dac_output %0x, cfg->adc_input %0x", cfg->dac_output, cfg->adc_input);
+
     res = es_i2c_init(); // ESP32 in master mode
 
     res |= es_write_reg( ES8388_DACCONTROL3, 0x04);  // 0x04 mute/0x00 unmute&ramp;DAC unmute and  disabled digital volume control soft ramp
@@ -433,6 +418,7 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
 //    res |= es_write_reg( ES8388_CONTROL2, 0);  //LPVrefBuf=0,Pdn_ana=0
     res |= es_write_reg( ES8388_DACCONTROL1, 0x18); //1a 0x18:16bit iis , 0x00:24
     res |= es_write_reg( ES8388_DACCONTROL2, 0x02);  //DACFsMode,SINGLE SPEED; DACFsRatio,256
+//    res |= es_write_reg( ES8388_DACCONTROL2, 0x00);  //DACFsMode,SINGLE SPEED; DACFsRatio,256
     res |= es_write_reg( ES8388_DACCONTROL16, 0x00); // 0x00 audio on LIN1&RIN1,  0x09 LIN2&RIN2
     res |= es_write_reg( ES8388_DACCONTROL17, 0x90); // only left DAC to left mixer enable 0db
     res |= es_write_reg( ES8388_DACCONTROL20, 0x90); // only right DAC to right mixer enable 0db
@@ -453,7 +439,7 @@ esp_err_t es8388_init(es_codec_config_t *cfg)
     res |= es_write_reg( ES8388_ADCPOWER, 0xFF);
     res |= es_write_reg( ES8388_ADCCONTROL1, 0xbb); // MIC Left and Right channel PGA gain
     res |= es_write_reg( ES8388_ADCCONTROL2, cfg->adc_input);  //0x00 LINSEL & RINSEL, LIN1/RIN1 as ADC Input; DSSEL,use one DS Reg11; DSR, LINPUT1-RINPUT1
-    res |= es_write_reg( ES8388_ADCCONTROL3, 0x20); // BB - consider not setting flash to low power?
+    res |= es_write_reg( ES8388_ADCCONTROL3, 0x02); // BB - consider not setting flash to low power?
     res |= es_write_reg( ES8388_ADCCONTROL4, 0x0c); // 16 Bits length and I2S serial audio data format
     res |= es_write_reg( ES8388_ADCCONTROL5, 0x02);  //ADCFsMode,singel SPEED,RATIO=256
     //ALC for Microphone
@@ -573,14 +559,13 @@ esp_err_t es8388_set_volume(int volume)
     if (volume < 0) volume = 0; else if (volume > 100) volume = 100; 
     // volume = volume_table[volume]; 
     volume = volume / 3; // just happens to map 0-100 to 0-33
-    res = es_write_reg(ES8388_LDACVOL, 30); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
-    res |= es_write_reg(ES8388_RDACVOL, 30); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
+    res = es_write_reg(ES8388_LDACVOL, 0); // LDACVOL  0..-96db  in 0.5steps (0=loud, 192=silent)
+    res |= es_write_reg(ES8388_RDACVOL, 0); // RDACVOL 0..-96db  in 0.5steps (0=loud, 192=silent)
     res |= es_write_reg(ES8388_DACCONTROL24, volume);  // LOUT1 volume 0..33 dB
     res |= es_write_reg(ES8388_DACCONTROL25, volume);  // ROUT1 volume 0..33 dB
     res |= es_write_reg(ES8388_DACCONTROL26, volume);  // LOUT2 volume 0..33 dB
     res |= es_write_reg(ES8388_DACCONTROL27, volume);  // ROUT2 volume 0..33 dB
     //ESP_LOGI(TAG, "Set volume:%.2d", volume);
-    return res;
 
     g_user_volume = volume;
 
@@ -593,6 +578,8 @@ esp_err_t es8388_set_volume(int volume)
     // res |= es_write_reg( ES8388_ROUT2VOL, vol_value);  // ROUT2 volume 0..33 dB - power amp
 
     // can be noisy in here
+//    ESP_LOGI(TAG, "ES8388 SET VOLUME COMPLETE.");
+//    es8388_dump_all();
 #if 0
     if (res == ESP_OK) {
         ESP_LOGI(TAG, "Success: Set volume:%.2d", volume);
@@ -695,6 +682,9 @@ esp_err_t es8388_get_mute(void)
  */
 esp_err_t es8388_config_dac_output(es_dac_output_t output)
 {
+
+    ESP_LOGI(TAG, "config dac output: %x", (int)output);
+
     esp_err_t res;
     uint8_t reg = 0;
     res = es_read_reg(ES8388_DACPOWER, &reg);
@@ -773,6 +763,9 @@ esp_err_t es8388_config_i2s(es_codec_mode_t mode, es_codec_i2s_iface_t *iface)
 {
     esp_err_t res = ESP_OK;
     int tmp = 0;
+
+    ESP_LOGI(TAG, "config_i2s: mode %x", mode);
+
     res |= es8388_config_fmt(ES_MODULE_ADC_DAC, iface->fmt);
     if (iface->bits == ES_BIT_LENGTH_16BITS) {
         tmp = BIT_LENGTH_16BITS;
@@ -787,6 +780,9 @@ esp_err_t es8388_config_i2s(es_codec_mode_t mode, es_codec_i2s_iface_t *iface)
 
 esp_err_t es8388_pa_power(bool enable)
 {
+
+    ESP_LOGI(TAG, "pa_power: %d", (int) enable);
+
     esp_err_t res = ESP_OK;
     if (enable) {
         res = gpio_set_level(ES8388_PA_ENABLE_GPIO, 1);
