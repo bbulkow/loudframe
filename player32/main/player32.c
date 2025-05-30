@@ -200,10 +200,10 @@ void es8388_player_task(void *pvParameters)
 // loop through setting the volume slowly
 void volume_task(void *pvParameters)
 {
-    static const int top = 20;
+    static const int top = 100;
     static const int bottom = 0;
-    static const int step = 2;
-    static const int delay_ms = 10000;
+    static const int step = 5;
+    static const int delay_ms = 1000;
     while (1) {
 
         ESP_LOGI(TAG, "Volume: low and increasing (1s)");
