@@ -231,29 +231,44 @@ void volume_task(void *pvParameters)
 // distance, and if so, set the volume
 void proximity_task(void *pvParameters)
 {
-    static const int top = 100;
-    static const int bottom = 0;
-    static const int step = 5;
-    static const int delay_ms = 1000;
+    // Tuning Parameters
+    static const int lowest_vol = 10;
+    static const int highest_vol = 50;
+    static const float lowest_distance = 400.0;
+    static const float highest_distance = 2000.0;
 
     /* Call Maxbotix function */
     maxbotix_init();
 
     while(1)
     {
+
+//        uint16_t sample = maxbotix_get_latest();
+//        ESP_LOGI(TAG, "received distance sample: %d", sample);
+
     	int16_t count;
-
-        uint16_t sample = maxbotix_get_latest();
-
-        ESP_LOGI(TAG, "received sample %d", sample);
-
         int32_t age = maxbotix_get_age();
-        float result = maxbotix_get_median(0.6f,8,32,&count);
-        ESP_LOGI(TAG,"Median sample returned %f, sample count %d",(double)result,count);
+        float distance = maxbotix_get_median(0.6f,8,32,&count);
+        // ESP_LOGI(TAG,"Median distance returned %f, sample count %d",(double)distance,count);
         
+        // map distance to volume n set
+        int vol = 0;
+        if (distance < lowest_distance) {
+            // ESP_LOGI(TAG,"Distance less than min, use %d",highest_vol);
+            vol = highest_vol;
+        }
+        else if (distance > highest_distance) {
+            // ESP_LOGI(TAG,"Distance more than max, use %d",lowest_vol);
+            vol = lowest_vol;
+        }
+        else {
+            vol = highest_vol - (int)( ((distance - lowest_distance) / (highest_distance - lowest_distance)) * (float)(highest_vol - lowest_vol) );
+            // ESP_LOGI(TAG,"Distance between: use %d",vol);
+        }
+        es8388_set_volume(vol);
 
         /* Wait delay for 2 second interval */
-        vTaskDelay(pdMS_TO_TICKS(1000*2));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     vTaskDelete(NULL);
