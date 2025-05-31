@@ -43,8 +43,9 @@
 #include <errno.h>
 
 // local
-#include "player32.h"
 #include "es8388.h"
+#include "maxbotics.h"
+#include "player32.h"
 
 static const char *TAG = "player32";
 
@@ -226,6 +227,39 @@ void volume_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+// Read from a proximity sensor to see if there's
+// distance, and if so, set the volume
+void proximity_task(void *pvParameters)
+{
+    static const int top = 100;
+    static const int bottom = 0;
+    static const int step = 5;
+    static const int delay_ms = 1000;
+
+    /* Call Maxbotix function */
+    maxbotix_init();
+
+    while(1)
+    {
+    	int16_t count;
+
+        uint16_t sample = maxbotix_get_latest();
+
+        ESP_LOGI(TAG, "received sample %d", sample);
+
+        int32_t age = maxbotix_get_age();
+        float result = maxbotix_get_median(0.6f,8,32,&count);
+        ESP_LOGI(TAG,"Median sample returned %f, sample count %d",(double)result,count);
+        
+
+        /* Wait delay for 2 second interval */
+        vTaskDelay(pdMS_TO_TICKS(1000*2));
+    }
+
+    vTaskDelete(NULL);
+}
+
+
 void dump_tasks(void) {
 
     const size_t line_size = 64;
@@ -307,7 +341,7 @@ void app_main(void)
     // going to need to sort this out better at some point....
     // TODO: there appears to be a gain stage problem. I've got distortion in loud parts, but it's not the
     // master that's getting me.
-    ret = es8388_set_volume(80);
+    ret = es8388_set_volume(30);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "ES8388 set volume failed: %d",(int) ret);
     }
@@ -402,10 +436,15 @@ void app_main(void)
                                 NULL/*tskreturn*/, 1 /*core*/);
 #endif
 
-#if 1
-    // using the wav ringbuf, play the contents to the DAC
-    // lower priority than the file reader
+#if 0
+    // little test code to make sure changing volume works, generally
     xTaskCreatePinnedToCore(volume_task, "volume_task", 1024 * 4, NULL, configMAX_PRIORITIES - 6, 
+                                NULL/*tskreturn*/, 1 /*core*/);
+#endif
+
+#if 1
+    // using a proxmity sensor, increase and decrease the volume based on what's around
+    xTaskCreatePinnedToCore(proximity_task, "prox_task", 1024 * 4, NULL, configMAX_PRIORITIES - 6, 
                                 NULL/*tskreturn*/, 1 /*core*/);
 #endif
 
