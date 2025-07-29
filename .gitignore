@@ -4,7 +4,7 @@ sdkconfig
 sdkconfig.old
 
 # VS Code settings (optional)
-.vscode/
+# .vscode/
 
 # Python environment caches
 __pycache__/
