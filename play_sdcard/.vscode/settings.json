@@ -1,0 +1,11 @@
+{
+  "idf.portWin": "COM4",
+  "idf.enableCCache": true,
+  "idf.espIdfPath": "C:\\Users\\bbulk\\dev\\esp\\esp-adf\\esp-idf",
+  "idf.espIdfPathWin": "C:\\Users\\bbulk\\dev\\esp\\esp-adf\\esp-idf",
+  "idf.toolsPath": "C:\\Users\\bbulk\\dev\\esp\\esp-idf\\tools",
+  "idf.pythonInstallPath": "C:\\Users\\bbulk\\dev\\esp\\esp-idf\\tools\\python_env\\idf5.3_py3.12_env\\Scripts\\python.exe",
+  "idf.customExtraVars": {
+    "ADF_PATH": "C:\\Users\\bbulk\\dev\\esp\\esp-adf"
+  }
+}

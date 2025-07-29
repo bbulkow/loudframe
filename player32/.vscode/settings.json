@@ -1,0 +1,16 @@
+{
+    "idf.pythonInstallPath": "C:\\Users\\bbulk\\dev\\esp\\esp-idf\\tools\\tools\\idf-python\\3.11.2\\python.exe",
+    "idf.flashType": "UART",
+    "idf.portWin": "COM4",
+    "idf.espIdfPath": "C:\\Users\\bbulk\\dev\\esp\\esp-idf\\v5.4\\esp-idf",
+    "files.associations": {
+        "dirent.h": "c",
+        "nvs_flash.h": "c",
+        "sdmmc_host.h": "c",
+        "es8388.h": "c",
+        "task.h": "c",
+        "sdmmc_cmd.h": "c",
+        "ringbuf.h": "c",
+        "freertos.h": "c"
+    }
+}
